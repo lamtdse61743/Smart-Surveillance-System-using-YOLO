@@ -1,0 +1,7 @@
+torch
+opencv-python
+ultralytics
+facenet-pytorch
+mediapipe
+numpy
+plyer
