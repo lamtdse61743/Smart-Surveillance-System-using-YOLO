@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Surveillance Video Processor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        video {
+            margin-top: 20px;
+            width: 100%;
+            max-width: 720px;
+            border: 1px solid #ccc;
+        }
+        .upload-form {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Smart Surveillance Processor</h1>
+    <p>Upload a video to detect faces, track objects, and generate an annotated output.</p>
+
+    <form class="upload-form" method="POST" enctype="multipart/form-data">
+        <input type="file" name="video" accept="video/*" required>
+        <button type="submit">Upload & Process</button>
+    </form>
+
+    {% if output_video %}
+        <h2>Processed Output</h2>
+        <video controls>
+            <source src="{{ url_for('static', filename='output/' + output_video) }}" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        <br>
+        <a href="{{ url_for('static', filename='output/' + output_video) }}" download>Download Output Video</a>
+    {% endif %}
+
+</body>
+</html>
