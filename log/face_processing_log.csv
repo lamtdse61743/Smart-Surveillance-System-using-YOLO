@@ -1,0 +1,5 @@
+Event ID,Frame,Behavior,Class,Distance (m),Timestamp (s),Event Time (system),Closest Person Distance (m)
+abc54033-acac-480a-a4fa-74d954dc5df1,55,Proximity Alert,person,4.16,1.83,2025-06-26 00:01:47,
+075f8135-57d9-4e77-bb5c-b01d1574db68,68,Door Open,Lam,,2.27,2025-06-26 00:01:47,
+282157a5-8ada-4905-a7fc-b35fabcf456c,165,Proximity Alert,person,2.26,5.5,2025-06-26 00:01:57,
+cb8fce97-7fe1-4337-bcfb-e2f4fa183df6,265,Proximity Alert,person,1.97,8.83,2025-06-26 00:02:07,

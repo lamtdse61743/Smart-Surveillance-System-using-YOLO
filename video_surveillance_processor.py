@@ -4,28 +4,24 @@ def process_video(input_path, output_path):
     import csv
     import os
     import uuid
-    import platform
-    import subprocess
     import torch
     import numpy as np
-    from datetime import datetime, timedelta
-    from collections import defaultdict, deque
+    from datetime import datetime
+    from collections import deque
     from ultralytics import YOLO
     from facenet_pytorch import InceptionResnetV1
     import mediapipe as mp
 
-    model_general = YOLO("models/yolov9t.pt")
-    model_box = YOLO("models/box_yolov9t.pt")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    box_model_path = os.path.join(base_dir, "models", "box_yolov9t.pt")
+    general_model_path = os.path.join(base_dir, "models", "yolov9t.pt")
+
+    model_box = YOLO(box_model_path)
+    model_general = YOLO(general_model_path)
 
     focal_px = 700
     frame_skip = 5
-    persistence_duration_sec = 2
-    alert_cooldown_sec = 10
-    delivery_suppression_sec = 5
-    log_cleanup_window_sec = 60
     person_proximity_cooldown_sec = 10
-    mailbox_cooldown_sec = 3600
-    box_removal_timeout_sec = 60
 
     target_classes = {0: "person", 2: "car", 16: "cat", 17: "dog", 80: "box"}
     real_height_m = {0: 1.7, 2: 1.4, 16: 0.1, 17: 0.1, 80: 0.1}
@@ -59,13 +55,14 @@ def process_video(input_path, output_path):
             return name, np.zeros(512)
 
     known_faces = dict([
-        load_known_face("Lam", "home_owner_imgs/Lam/Lam.jpg"),
-        load_known_face("William", "home_owner_imgs/William/William.jpeg")
+        load_known_face("Lam", os.path.join(base_dir, "home_owner_imgs", "Lam", "Lam.jpg")),
+        load_known_face("William", os.path.join(base_dir, "home_owner_imgs", "William", "William.jpeg"))
     ])
 
     os.makedirs("log", exist_ok=True)
-    csv_path = "log/face_processing_log.csv"
-    alert_log_path = "log/alert_log.csv"
+    csv_path = os.path.join(base_dir, "log", "face_processing_log.csv")
+    alert_log_path = os.path.join(base_dir, "log", "alert_log.csv")
+    progress_file = os.path.join(base_dir, "log", "progress.txt")
 
     cap = cv2.VideoCapture(input_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -74,13 +71,10 @@ def process_video(input_path, output_path):
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     csv_log_buffer = []
     alert_log_buffer = []
-
-    track_to_name = {}
     recent_persons = deque()
-    logged_boxes = set()
-    delivery_suppression_until = 0
     last_person_proximity_time = 0
     home_arrivals = set()
 
@@ -94,11 +88,15 @@ def process_video(input_path, output_path):
             break
 
         frame_num = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+        progress = int((frame_num / total_frames) * 100)
+        with open(progress_file, "w") as f:
+            f.write(str(progress))
+
         timestamp = frame_num / fps
         annotated = frame.copy()
         current_time = time.time()
 
-        # === Face Detection ===
+        # Face Detection
         result_face = mp_face.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         best_match = "Unknown"
         best_score = 0.0
@@ -129,13 +127,12 @@ def process_video(input_path, output_path):
                     csv_log_buffer.append([str(uuid.uuid4()), frame_num, "Door Open", label, "", round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""])
                     notify_local("Home Owner Detected", f"{label} just came home!")
 
-        # === Object Detection ===
+        # Object Detection
         if frame_num % frame_skip == 0:
             detections = model_general.track(frame, persist=True, verbose=False, tracker="bytetrack.yaml")[0]
             if detections.boxes.id is not None:
                 for box, cls_id, track_id in zip(detections.boxes.xyxy, detections.boxes.cls, detections.boxes.id):
                     cls_id = int(cls_id)
-                    track_id = int(track_id)
                     if cls_id not in target_classes:
                         continue
 
@@ -160,6 +157,9 @@ def process_video(input_path, output_path):
     cap.release()
     out.release()
 
+    with open(progress_file, "w") as f:
+        f.write("100")
+
     with open(csv_path, mode="w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Closest Person Distance (m)"])
@@ -172,4 +172,4 @@ def process_video(input_path, output_path):
         for entry in alert_log_buffer:
             alert_writer.writerow(entry)
 
-    return True
+    return os.path.basename(output_path)

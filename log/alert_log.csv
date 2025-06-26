@@ -1,3 +1,5 @@
 Alert Time,Title,Message
-2025-06-04 11:03:22,Proximity Alert,There's a person approaching at 4.76 meters.
-2025-06-04 11:03:41,Delivery Alert,A mailbox appeared close by.
+2025-06-26 00:01:47,Proximity Alert,Person detected at 4.16 meters
+2025-06-26 00:01:47,Home Owner Detected,Lam just came home!
+2025-06-26 00:01:57,Proximity Alert,Person detected at 2.26 meters
+2025-06-26 00:02:07,Proximity Alert,Person detected at 1.97 meters

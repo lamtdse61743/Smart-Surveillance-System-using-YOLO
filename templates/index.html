@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart Surveillance Video Processor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    video {
+      margin-top: 20px;
+      width: 100%;
+      max-width: 720px;
+      border: 1px solid #ccc;
+    }
+    .upload-form {
+      margin-top: 20px;
+    }
+    #progress-container {
+      display: none;
+      margin-top: 20px;
+    }
+    #output-section {
+      display: none;
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Smart Surveillance Processor</h1>
+  <p>Upload a video to detect faces, track objects, and generate an annotated output.</p>
+
+  <form id="upload-form" class="upload-form" enctype="multipart/form-data">
+    <input type="file" name="video" accept="video/*" required />
+    <button type="submit">Upload & Process</button>
+  </form>
+
+  <div id="progress-container">
+    <h3>Processing Video...</h3>
+    <div id="progress-bar" style="width: 100%; background: #ddd; height: 25px;">
+      <div id="progress-fill" style="width: 0%; background: #4caf50; height: 100%; text-align: center; color: white;">
+        0%
+      </div>
+    </div>
+  </div>
+
+  <div id="output-section">
+    <h2>Processed Output</h2>
+    <video id="output-video" controls></video>
+    <br />
+    <a id="download-link" href="#" download>Download Output Video</a>
+  </div>
+
+  <script>
+    const form = document.getElementById("upload-form");
+    const fill = document.getElementById("progress-fill");
+    const progressContainer = document.getElementById("progress-container");
+    const outputSection = document.getElementById("output-section");
+    const outputVideo = document.getElementById("output-video");
+    const downloadLink = document.getElementById("download-link");
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      const formData = new FormData(form);
+      progressContainer.style.display = "block";
+      outputSection.style.display = "none";
+      fill.style.width = "0%";
+      fill.textContent = "0%";
+
+      let outputFilename = "";
+
+      // Start polling progress
+      let pollProgress = setInterval(() => {
+        fetch("/progress")
+          .then(res => res.text())
+          .then(percent => {
+            fill.style.width = percent + "%";
+            fill.textContent = percent + "%";
+          });
+      }, 500);
+
+      // Upload file and process
+      fetch("/", {
+        method: "POST",
+        body: formData,
+      })
+      .then(res => res.json())
+      .then(data => {
+        clearInterval(pollProgress);
+        if (data.output_video) {
+          outputFilename = data.output_video;
+          fill.style.width = "100%";
+          fill.textContent = "100%";
+          // Retry loading the video file until it's available
+          const videoPath = "/static/output/" + outputFilename;
+          const checkVideoExists = () => {
+            fetch(videoPath, { method: "HEAD" }).then((res) => {
+              if (res.ok) {
+                outputVideo.src = videoPath;
+                downloadLink.href = videoPath;
+                outputSection.style.display = "block";
+              } else {
+                setTimeout(checkVideoExists, 500);
+              }
+            });
+          };
+          checkVideoExists();
+        } else {
+          alert("Processing failed.");
+        }
+      })
+      .catch((err) => {
+        clearInterval(pollProgress);
+        alert("An error occurred: " + err.message);
+      });
+    });
+  </script>
+</body>
+</html>
