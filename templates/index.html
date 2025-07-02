@@ -4,94 +4,95 @@
   <meta charset="UTF-8" />
   <title>Smart Surveillance Video Processor</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
   <style>
-    
     body {
-      font-family: Arial, sans-serif;
-      max-width: 900px;
-      margin: auto;
-      padding: 20px;
+      background: #f9f9f9;
     }
-    h1 {
-      color: #333;
+    .container {
+      margin-top: 40px;
     }
     video {
-      margin-top: 20px;
       width: 100%;
-      max-width: 720px;
-      border: 1px solid #ccc;
+      max-height: 480px;
+      border-radius: 6px;
     }
     #progress-container {
       display: none;
-      margin-top: 20px;
-    }
-    #output-section {
-      display: none;
       margin-top: 30px;
     }
-    #log-section {
+    #output-section, #log-section {
       display: none;
-      margin-top: 30px;
+      margin-top: 40px;
+    }
+    .log-controls {
+      margin-bottom: 20px;
     }
     table {
-      border-collapse: collapse;
-      width: 100%;
-      margin-top: 15px;
+      font-size: 0.9rem;
     }
     th, td {
-      border: 1px solid #ccc;
-      padding: 6px 10px;
-      text-align: left;
-    }
-    th {
-      background-color: #f0f0f0;
-    }
-    #filter-container {
-      margin-top: 10px;
+      padding: 8px 12px !important;
     }
   </style>
 </head>
 <body>
 
-  <h1>Smart Surveillance Processor</h1>
-  <p>Upload a video to detect faces, track objects, and generate logs.</p>
+  <div class="container">
+    <h4 class="center-align">Smart Surveillance Processor</h4>
+    <p class="center-align">Upload a video to detect people, faces, and behaviors. View logs and filter events below.</p>
 
-  <form id="upload-form" enctype="multipart/form-data">
-    <input type="file" name="video" accept="video/*" required />
-    <button type="submit">Upload & Process</button>
-  </form>
+    <form id="upload-form" enctype="multipart/form-data" class="card-panel">
+      <div class="file-field input-field">
+        <div class="btn">
+          <span>Choose Video</span>
+          <input type="file" name="video" accept="video/*" required />
+        </div>
+        <div class="file-path-wrapper">
+          <input class="file-path validate" type="text" placeholder="Upload your surveillance video" />
+        </div>
+      </div>
+      <button type="submit" class="btn waves-effect waves-light">Upload & Process</button>
+    </form>
 
-  <div id="progress-container">
-    <h3>Processing Video...</h3>
-    <div id="progress-bar" style="width: 100%; background: #ddd; height: 25px;">
-      <div id="progress-fill" style="width: 0%; background: #4caf50; height: 100%; text-align: center; color: white;">
-        0%
+    <div id="progress-container">
+      <h6>Processing Video...</h6>
+      <div class="progress">
+        <div id="progress-fill" class="determinate" style="width: 0%"></div>
       </div>
     </div>
-  </div>
 
-  <div id="output-section">
-    <h2>Processed Output</h2>
-    <video id="output-video" controls></video>
-    <br />
-    <a id="download-link" href="#" download>Download Output Video</a>
-  </div>
-
-  <div id="log-section">
-    <h2>Event Log</h2>
-    <div id="filter-container">
-      <label for="behavior-filter">Filter by Behavior:</label>
-      <select id="behavior-filter">
-        <option value="All">All</option>
-      </select>
-      <button id="download-csv">Download CSV</button>
+    <div id="output-section" class="card-panel">
+      <h5>Processed Output</h5>
+      <video id="output-video" controls></video>
+      <br><br>
+      <a id="download-link" class="btn blue" href="#" download>Download Output Video</a>
     </div>
-    <table id="log-table"></table>
+
+    <div id="log-section" class="card-panel">
+      <h5>Event Log</h5>
+      <div class="row log-controls">
+        <div class="input-field col s6">
+          <select id="behavior-filter">
+            <option value="All" selected>All</option>
+          </select>
+          <label>Filter by Behavior</label>
+        </div>
+        <div class="col s6 right-align">
+          <a class="btn green" id="download-csv">Download CSV</a>
+        </div>
+      </div>
+      <table class="striped responsive-table" id="log-table"></table>
+    </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
   <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      M.AutoInit();
+    });
+
     const form = document.getElementById("upload-form");
     const fill = document.getElementById("progress-fill");
     const progressContainer = document.getElementById("progress-container");
@@ -113,14 +114,12 @@
       outputSection.style.display = "none";
       logSection.style.display = "none";
       fill.style.width = "0%";
-      fill.textContent = "0%";
 
       let pollProgress = setInterval(() => {
         fetch("/progress")
           .then(res => res.text())
           .then(percent => {
             fill.style.width = percent + "%";
-            fill.textContent = percent + "%";
           });
       }, 500);
 
@@ -128,39 +127,39 @@
         method: "POST",
         body: formData,
       })
-      .then(res => res.json())
-      .then(data => {
-        clearInterval(pollProgress);
+        .then(res => res.json())
+        .then(data => {
+          clearInterval(pollProgress);
 
-        if (data.output_video) {
-          const videoPath = "/static/output/" + data.output_video;
-          const checkVideoExists = () => {
-            fetch(videoPath, { method: "HEAD" }).then((res) => {
-              if (res.ok) {
-                outputVideo.src = videoPath;
-                downloadLink.href = videoPath;
-                outputSection.style.display = "block";
+          if (data.output_video) {
+            const videoPath = "/static/output/" + data.output_video;
+            const checkVideoExists = () => {
+              fetch(videoPath, { method: "HEAD" }).then((res) => {
+                if (res.ok) {
+                  outputVideo.src = videoPath;
+                  downloadLink.href = videoPath;
+                  outputSection.style.display = "block";
 
-                // Load and render log
-                logData = data.log_data;
-                populateLogTable("All");
-                populateFilterOptions();
-                logSection.style.display = "block";
+                  logData = data.log_data;
+                  populateLogTable("All");
+                  populateFilterOptions();
+                  logSection.style.display = "block";
+                  M.FormSelect.init(filterSelect); // Re-init Materialize select
 
-              } else {
-                setTimeout(checkVideoExists, 500);
-              }
-            });
-          };
-          checkVideoExists();
-        } else {
-          alert("Processing failed.");
-        }
-      })
-      .catch((err) => {
-        clearInterval(pollProgress);
-        alert("An error occurred: " + err.message);
-      });
+                } else {
+                  setTimeout(checkVideoExists, 500);
+                }
+              });
+            };
+            checkVideoExists();
+          } else {
+            alert("Processing failed.");
+          }
+        })
+        .catch((err) => {
+          clearInterval(pollProgress);
+          alert("An error occurred: " + err.message);
+        });
     });
 
     function populateLogTable(filterValue) {
@@ -168,8 +167,10 @@
       if (logData.length === 0) return;
 
       const headers = logData[0];
+      const behaviorIndex = headers.indexOf("Behavior");
+
       const filtered = logData.slice(1).filter(row => {
-        return filterValue === "All" || row[2] === filterValue;
+        return filterValue === "All" || row[behaviorIndex] === filterValue;
       });
 
       let html = "<thead><tr>";
@@ -189,8 +190,11 @@
     }
 
     function populateFilterOptions() {
-      const behaviors = new Set(logData.map(row => row[2]).slice(1));
-      filterSelect.innerHTML = `<option value="All">All</option>`;
+      const headers = logData[0];
+      const behaviorIndex = headers.indexOf("Behavior");
+      const behaviors = new Set(logData.slice(1).map(row => row[behaviorIndex]));
+
+      filterSelect.innerHTML = `<option value="All" selected>All</option>`;
       behaviors.forEach(behavior => {
         filterSelect.innerHTML += `<option value="${behavior}">${behavior}</option>`;
       });
