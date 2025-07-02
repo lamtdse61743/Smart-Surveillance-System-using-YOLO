@@ -60,8 +60,7 @@ def process_video(input_path, output_path):
     ])
 
     os.makedirs("log", exist_ok=True)
-    csv_path = os.path.join(base_dir, "log", "face_processing_log.csv")
-    alert_log_path = os.path.join(base_dir, "log", "alert_log.csv")
+    log_path = os.path.join(base_dir, "log", "log.csv")
     progress_file = os.path.join(base_dir, "log", "progress.txt")
 
     cap = cv2.VideoCapture(input_path)
@@ -72,15 +71,18 @@ def process_video(input_path, output_path):
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    csv_log_buffer = []
-    alert_log_buffer = []
+    log_buffer = []
     recent_persons = deque()
     last_person_proximity_time = 0
     home_arrivals = set()
+    persistent_boxes = []
+    persistent_ttl = 5
 
     def notify_local(title, message):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        alert_log_buffer.append([now, title, message])
+        log_buffer.append([
+            str(uuid.uuid4()), "N/A", "Alert", title, message, "", now, ""
+        ])
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -124,10 +126,13 @@ def process_video(input_path, output_path):
                 cv2.putText(annotated, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                 if label != "Unknown" and label not in home_arrivals:
                     home_arrivals.add(label)
-                    csv_log_buffer.append([str(uuid.uuid4()), frame_num, "Door Open", label, "", round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""])
+                    log_buffer.append([
+                        str(uuid.uuid4()), frame_num, "Door Open", label, "", round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
+                    ])
                     notify_local("Home Owner Detected", f"{label} just came home!")
 
-        # Object Detection
+        persistent_boxes = [(b, l, t - 1) for (b, l, t) in persistent_boxes if t > 1]
+
         if frame_num % frame_skip == 0:
             detections = model_general.track(frame, persist=True, verbose=False, tracker="bytetrack.yaml")[0]
             if detections.boxes.id is not None:
@@ -142,15 +147,21 @@ def process_video(input_path, output_path):
                     height_m = real_height_m.get(cls_id, 1.0)
                     distance_m = (focal_px * height_m) / box_height if box_height > 0 else None
                     text = f"{label}: {distance_m:.2f} m" if distance_m else f"{label}"
-                    cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(annotated, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                    persistent_boxes.append(((x1, y1, x2, y2), text, persistent_ttl))
 
                     if cls_id == 0 and distance_m and distance_m < 5.0:
                         if current_time - last_person_proximity_time > person_proximity_cooldown_sec:
                             notify_local("Proximity Alert", f"Person detected at {distance_m:.2f} meters")
-                            csv_log_buffer.append([str(uuid.uuid4()), frame_num, "Proximity Alert", label, round(distance_m, 2), round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""])
+                            log_buffer.append([
+                                str(uuid.uuid4()), frame_num, "Proximity Alert", label, round(distance_m, 2), round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
+                            ])
                             recent_persons.append((track_id, distance_m, frame_num))
                             last_person_proximity_time = current_time
+
+        for (x1, y1, x2, y2), text, _ in persistent_boxes:
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(annotated, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         out.write(annotated)
 
@@ -160,16 +171,10 @@ def process_video(input_path, output_path):
     with open(progress_file, "w") as f:
         f.write("100")
 
-    with open(csv_path, mode="w", newline="") as csv_file:
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Closest Person Distance (m)"])
-        for entry in csv_log_buffer:
-            csv_writer.writerow(entry)
-
-    with open(alert_log_path, mode="w", newline="") as alert_file:
-        alert_writer = csv.writer(alert_file)
-        alert_writer.writerow(["Alert Time", "Title", "Message"])
-        for entry in alert_log_buffer:
-            alert_writer.writerow(entry)
+    with open(log_path, mode="w", newline="") as log_file:
+        log_writer = csv.writer(log_file)
+        log_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Closest Person Distance (m)"])
+        for entry in log_buffer:
+            log_writer.writerow(entry)
 
     return os.path.basename(output_path)

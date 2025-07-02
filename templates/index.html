@@ -3,10 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <title>Smart Surveillance Video Processor</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+
+
   <style>
+    
     body {
       font-family: Arial, sans-serif;
-      max-width: 800px;
+      max-width: 900px;
       margin: auto;
       padding: 20px;
     }
@@ -19,9 +23,6 @@
       max-width: 720px;
       border: 1px solid #ccc;
     }
-    .upload-form {
-      margin-top: 20px;
-    }
     #progress-container {
       display: none;
       margin-top: 20px;
@@ -30,14 +31,34 @@
       display: none;
       margin-top: 30px;
     }
+    #log-section {
+      display: none;
+      margin-top: 30px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 15px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px 10px;
+      text-align: left;
+    }
+    th {
+      background-color: #f0f0f0;
+    }
+    #filter-container {
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
 
   <h1>Smart Surveillance Processor</h1>
-  <p>Upload a video to detect faces, track objects, and generate an annotated output.</p>
+  <p>Upload a video to detect faces, track objects, and generate logs.</p>
 
-  <form id="upload-form" class="upload-form" enctype="multipart/form-data">
+  <form id="upload-form" enctype="multipart/form-data">
     <input type="file" name="video" accept="video/*" required />
     <button type="submit">Upload & Process</button>
   </form>
@@ -58,6 +79,18 @@
     <a id="download-link" href="#" download>Download Output Video</a>
   </div>
 
+  <div id="log-section">
+    <h2>Event Log</h2>
+    <div id="filter-container">
+      <label for="behavior-filter">Filter by Behavior:</label>
+      <select id="behavior-filter">
+        <option value="All">All</option>
+      </select>
+      <button id="download-csv">Download CSV</button>
+    </div>
+    <table id="log-table"></table>
+  </div>
+
   <script>
     const form = document.getElementById("upload-form");
     const fill = document.getElementById("progress-fill");
@@ -65,6 +98,12 @@
     const outputSection = document.getElementById("output-section");
     const outputVideo = document.getElementById("output-video");
     const downloadLink = document.getElementById("download-link");
+    const logSection = document.getElementById("log-section");
+    const logTable = document.getElementById("log-table");
+    const filterSelect = document.getElementById("behavior-filter");
+    const downloadCSV = document.getElementById("download-csv");
+
+    let logData = [];
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();
@@ -72,12 +111,10 @@
       const formData = new FormData(form);
       progressContainer.style.display = "block";
       outputSection.style.display = "none";
+      logSection.style.display = "none";
       fill.style.width = "0%";
       fill.textContent = "0%";
 
-      let outputFilename = "";
-
-      // Start polling progress
       let pollProgress = setInterval(() => {
         fetch("/progress")
           .then(res => res.text())
@@ -87,7 +124,6 @@
           });
       }, 500);
 
-      // Upload file and process
       fetch("/", {
         method: "POST",
         body: formData,
@@ -95,18 +131,22 @@
       .then(res => res.json())
       .then(data => {
         clearInterval(pollProgress);
+
         if (data.output_video) {
-          outputFilename = data.output_video;
-          fill.style.width = "100%";
-          fill.textContent = "100%";
-          // Retry loading the video file until it's available
-          const videoPath = "/static/output/" + outputFilename;
+          const videoPath = "/static/output/" + data.output_video;
           const checkVideoExists = () => {
             fetch(videoPath, { method: "HEAD" }).then((res) => {
               if (res.ok) {
                 outputVideo.src = videoPath;
                 downloadLink.href = videoPath;
                 outputSection.style.display = "block";
+
+                // Load and render log
+                logData = data.log_data;
+                populateLogTable("All");
+                populateFilterOptions();
+                logSection.style.display = "block";
+
               } else {
                 setTimeout(checkVideoExists, 500);
               }
@@ -122,6 +162,58 @@
         alert("An error occurred: " + err.message);
       });
     });
+
+    function populateLogTable(filterValue) {
+      logTable.innerHTML = "";
+      if (logData.length === 0) return;
+
+      const headers = logData[0];
+      const filtered = logData.slice(1).filter(row => {
+        return filterValue === "All" || row[2] === filterValue;
+      });
+
+      let html = "<thead><tr>";
+      for (const col of headers) {
+        html += `<th>${col}</th>`;
+      }
+      html += "</tr></thead><tbody>";
+      for (const row of filtered) {
+        html += "<tr>";
+        for (const cell of row) {
+          html += `<td>${cell}</td>`;
+        }
+        html += "</tr>";
+      }
+      html += "</tbody>";
+      logTable.innerHTML = html;
+    }
+
+    function populateFilterOptions() {
+      const behaviors = new Set(logData.map(row => row[2]).slice(1));
+      filterSelect.innerHTML = `<option value="All">All</option>`;
+      behaviors.forEach(behavior => {
+        filterSelect.innerHTML += `<option value="${behavior}">${behavior}</option>`;
+      });
+    }
+
+    filterSelect.addEventListener("change", () => {
+      populateLogTable(filterSelect.value);
+    });
+
+    downloadCSV.addEventListener("click", () => {
+      let csvContent = "data:text/csv;charset=utf-8,";
+      logData.forEach(row => {
+        csvContent += row.join(",") + "\r\n";
+      });
+      const encodedUri = encodeURI(csvContent);
+      const tempLink = document.createElement("a");
+      tempLink.setAttribute("href", encodedUri);
+      tempLink.setAttribute("download", "log.csv");
+      document.body.appendChild(tempLink);
+      tempLink.click();
+      document.body.removeChild(tempLink);
+    });
   </script>
+
 </body>
 </html>
