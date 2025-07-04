@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Face Login</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+  <style>
+    body {
+      max-width: 600px;
+      margin: 40px auto;
+      text-align: center;
+    }
+    video, canvas {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin-top: 20px;
+      width: 100%;
+      max-width: 100%;
+    }
+    #login-result {
+      margin-top: 20px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <h4>Face Recognition Login</h4>
+  <video id="webcam" autoplay playsinline></video>
+  <br>
+  <button id="capture-btn" class="btn waves-effect waves-light">Capture & Login</button>
+  <canvas id="snapshot" style="display: none;"></canvas>
+  <div id="login-result"></div>
+
+  <script>
+    const webcam = document.getElementById('webcam');
+    const canvas = document.getElementById('snapshot');
+    const ctx = canvas.getContext('2d');
+    const result = document.getElementById('login-result');
+    const captureBtn = document.getElementById('capture-btn');
+
+    // Access the webcam
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => webcam.srcObject = stream)
+      .catch(err => alert("Webcam access denied."));
+
+    captureBtn.addEventListener('click', () => {
+      canvas.width = webcam.videoWidth;
+      canvas.height = webcam.videoHeight;
+      ctx.drawImage(webcam, 0, 0);
+
+      canvas.toBlob(blob => {
+        const formData = new FormData();
+        formData.append("face_image", blob, "capture.jpg");
+
+        fetch("/verify-face", {
+          method: "POST",
+          body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+          const similarity = data.similarity !== undefined ? parseFloat(data.similarity).toFixed(4) : "N/A";
+          if (data.success) {
+            result.innerHTML = `<span class="green-text">✅ Welcome, ${data.name} (Similarity: ${similarity})</span>`;
+            setTimeout(() => {
+              window.location.href = "/upload";  // Redirect after login
+            }, 1500);
+          } else {
+            result.innerHTML = `<span class="red-text">❌ Login failed: ${data.message} (Similarity: ${similarity})</span>`;
+          }
+        })
+        .catch(err => {
+          result.innerHTML = `<span class="red-text">Error: ${err.message}</span>`;
+        });
+      }, 'image/jpeg');
+    });
+  </script>
+
+</body>
+</html>

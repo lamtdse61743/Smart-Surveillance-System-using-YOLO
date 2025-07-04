@@ -40,7 +40,7 @@ real_height_m = {0: 1.7, 2: 1.4, 16: 0.1, 17: 0.1, 80: 0.1}
 # === Face Recognition Setup ===
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 face_model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
-mp_face = mp.solutions.face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.7)
+mp_face = mp.solutions.face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.6)
 
 def get_embedding(img):
     face = cv2.resize(img, (160, 160))[:, :, ::-1].copy()

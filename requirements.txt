@@ -5,3 +5,4 @@ facenet-pytorch
 mediapipe
 numpy
 plyer
+flask
