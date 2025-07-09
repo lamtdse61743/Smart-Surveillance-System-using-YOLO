@@ -8,8 +8,9 @@ from PIL import Image
 from torchvision import transforms
 from facenet_pytorch import InceptionResnetV1
 from sklearn.metrics.pairwise import cosine_similarity
-
+from flask import Response
 from video_surveillance_processor import process_video
+import cv2
 
 app = Flask(__name__)
 
@@ -61,27 +62,38 @@ def verify_face():
 
     with torch.no_grad():
         embedding = model(img_tensor).cpu().numpy()
-    embedding = embedding / np.linalg.norm(embedding)  # Normalize
+    embedding = embedding / np.linalg.norm(embedding)
 
     matched_name = None
     best_similarity = 0.0
-    threshold = 0.6
+    threshold = 0.55
 
-    # Compare against all known embeddings
-    for person_file in os.listdir(KNOWN_EMBEDDINGS_DIR):
-        if not person_file.endswith(".npy"):
+    # === Loop through each person folder ===
+    for person_name in os.listdir(KNOWN_EMBEDDINGS_DIR):
+        person_dir = os.path.join(KNOWN_EMBEDDINGS_DIR, person_name)
+        if not os.path.isdir(person_dir):
             continue
-        emb_path = os.path.join(KNOWN_EMBEDDINGS_DIR, person_file)
-        known_embedding = np.load(emb_path)
-        known_embedding = known_embedding / np.linalg.norm(known_embedding)  # Normalize
 
-        sim = cosine_similarity(embedding.reshape(1, -1), known_embedding.reshape(1, -1))[0][0]
-        print(f"{person_file} similarity: {sim:.4f}")
+        embeddings = []
+        for file in os.listdir(person_dir):
+            if file.endswith(".npy"):
+                emb_path = os.path.join(person_dir, file)
+                emb = np.load(emb_path)
+                emb = emb / np.linalg.norm(emb)
+                embeddings.append(emb)
+
+        if not embeddings:
+            continue
+
+        avg_emb = np.mean(embeddings, axis=0)
+        sim = cosine_similarity(embedding.reshape(1, -1), avg_emb.reshape(1, -1))[0][0]
+
+        print(f"{person_name} similarity: {sim:.4f}")
 
         if sim > best_similarity:
             best_similarity = sim
             if sim > threshold:
-                matched_name = os.path.splitext(person_file)[0]
+                matched_name = person_name
 
     if matched_name:
         return jsonify({
@@ -96,8 +108,6 @@ def verify_face():
             "similarity": round(float(best_similarity), 4)
         })
 
-
-
 # === Upload & Video Processing Page ===
 @app.route("/upload", methods=["GET", "POST"])
 def upload():
@@ -111,10 +121,8 @@ def upload():
         output_filename = f"processed_{name_wo_ext}.mp4"
         output_path = os.path.join(OUTPUT_DIR, output_filename)
 
-        # Run video processing
         process_video(input_path, output_path)
 
-        # Load logs
         log_data = []
         if os.path.exists(LOG_PATH):
             with open(LOG_PATH, newline="") as f:
@@ -137,6 +145,35 @@ def progress():
         return percent
     except:
         return "0"
+
+# === Streaming ===
+@app.route("/stream")
+def stream_page():
+    return render_template("stream.html")
+
+@app.route("/upload-stream", methods=["POST"])
+def upload_stream():
+    file = request.files["video"]
+    if not file:
+        return "No video", 400
+    file.save(os.path.join(UPLOAD_DIR, "stream_video.mp4"))
+    return "", 204
+
+@app.route("/video_feed")
+def video_feed():
+    def generate_frames():
+        path = os.path.join(UPLOAD_DIR, "stream_video.mp4")
+        cap = cv2.VideoCapture(path)
+        while cap.isOpened():
+            success, frame = cap.read()
+            if not success:
+                break
+            _, buffer = cv2.imencode('.jpg', frame)
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        cap.release()
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
 
 # === Run App ===
 if __name__ == "__main__":

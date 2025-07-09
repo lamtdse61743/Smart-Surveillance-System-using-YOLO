@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Face Login</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
   <style>
@@ -39,7 +39,7 @@
     const result = document.getElementById('login-result');
     const captureBtn = document.getElementById('capture-btn');
 
-    // Access the webcam
+    // Start webcam
     navigator.mediaDevices.getUserMedia({ video: true })
       .then(stream => webcam.srcObject = stream)
       .catch(err => alert("Webcam access denied."));
@@ -63,7 +63,7 @@
           if (data.success) {
             result.innerHTML = `<span class="green-text">✅ Welcome, ${data.name} (Similarity: ${similarity})</span>`;
             setTimeout(() => {
-              window.location.href = "/upload";  // Redirect after login
+              window.location.href = data.redirect_url || `/upload?name=${encodeURIComponent(data.name)}`;
             }, 1500);
           } else {
             result.innerHTML = `<span class="red-text">❌ Login failed: ${data.message} (Similarity: ${similarity})</span>`;

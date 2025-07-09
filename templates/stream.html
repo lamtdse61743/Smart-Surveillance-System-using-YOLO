@@ -1,0 +1,57 @@
+<!-- templates/stream.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simulated CCTV Stream</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+  <style>
+    body {
+      max-width: 720px;
+      margin: 40px auto;
+      text-align: center;
+    }
+    video, img {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 100%;
+    }
+    #stream-video {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h4>Simulated CCTV Video Stream</h4>
+
+  <form id="upload-form" enctype="multipart/form-data" class="card-panel">
+    <div class="file-field input-field">
+      <div class="btn">
+        <span>Select Video</span>
+        <input type="file" name="video" accept="video/*" required>
+      </div>
+      <div class="file-path-wrapper">
+        <input class="file-path validate" type="text" placeholder="Upload a CCTV simulation video">
+      </div>
+    </div>
+    <button class="btn">Start Stream</button>
+  </form>
+
+  <img id="stream-video" src="/video_feed" alt="Live Stream" />
+
+  <script>
+    document.getElementById('upload-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const formData = new FormData(this);
+
+      fetch('/upload-stream', {
+        method: 'POST',
+        body: formData
+      }).then(() => {
+        document.getElementById('stream-video').src = "/video_feed?" + new Date().getTime();
+      });
+    });
+  </script>
+</body>
+</html>

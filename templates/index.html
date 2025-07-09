@@ -35,11 +35,24 @@
     th, td {
       padding: 8px 12px !important;
     }
+    #user-greeting {
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 1.2rem;
+      color: #2c3e50;
+    }
   </style>
 </head>
 <body>
 
   <div class="container">
+    <div id="user-greeting"></div>
+    <div class="center-align" style="margin-top: 10px;">
+        <a href="/stream" class="btn grey">
+            📹 Simulate CCTV Stream
+        </a>
+    </div>
+
     <h4 class="center-align">Smart Surveillance Processor</h4>
     <p class="center-align">Upload a video to detect people, faces, and behaviors. View logs and filter events below.</p>
 
@@ -91,6 +104,13 @@
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       M.AutoInit();
+
+      // Display user greeting from ?name=...
+      const params = new URLSearchParams(window.location.search);
+      const name = params.get("name");
+      if (name) {
+        document.getElementById("user-greeting").innerHTML = `👋 Welcome back, <strong>${name}</strong>!`;
+      }
     });
 
     const form = document.getElementById("upload-form");
@@ -115,7 +135,7 @@
       logSection.style.display = "none";
       fill.style.width = "0%";
 
-      let pollProgress = setInterval(() => {
+      const pollProgress = setInterval(() => {
         fetch("/progress")
           .then(res => res.text())
           .then(percent => {
@@ -123,43 +143,41 @@
           });
       }, 500);
 
-      fetch("/", {
+      fetch("/upload", {
         method: "POST",
         body: formData,
       })
-        .then(res => res.json())
-        .then(data => {
-          clearInterval(pollProgress);
+      .then(res => res.json())
+      .then(data => {
+        clearInterval(pollProgress);
 
-          if (data.output_video) {
-            const videoPath = "/static/output/" + data.output_video;
-            const checkVideoExists = () => {
-              fetch(videoPath, { method: "HEAD" }).then((res) => {
-                if (res.ok) {
-                  outputVideo.src = videoPath;
-                  downloadLink.href = videoPath;
-                  outputSection.style.display = "block";
+        if (data.output_video) {
+          const videoPath = "/static/output/" + data.output_video;
+          const checkVideoExists = () => {
+            fetch(videoPath, { method: "HEAD" }).then(res => {
+              if (res.ok) {
+                outputVideo.src = videoPath;
+                downloadLink.href = videoPath;
+                outputSection.style.display = "block";
 
-                  logData = data.log_data;
-                  populateLogTable("All");
-                  populateFilterOptions();
-                  logSection.style.display = "block";
-                  M.FormSelect.init(filterSelect); // Re-init Materialize select
-
-                } else {
-                  setTimeout(checkVideoExists, 500);
-                }
-              });
-            };
-            checkVideoExists();
-          } else {
-            alert("Processing failed.");
-          }
-        })
-        .catch((err) => {
-          clearInterval(pollProgress);
-          alert("An error occurred: " + err.message);
-        });
+                logData = data.log_data;
+                populateLogTable("All");
+                populateFilterOptions();
+                logSection.style.display = "block";
+              } else {
+                setTimeout(checkVideoExists, 500);
+              }
+            });
+          };
+          checkVideoExists();
+        } else {
+          alert("Processing failed.");
+        }
+      })
+      .catch(err => {
+        clearInterval(pollProgress);
+        alert("An error occurred: " + err.message);
+      });
     });
 
     function populateLogTable(filterValue) {
@@ -169,9 +187,9 @@
       const headers = logData[0];
       const behaviorIndex = headers.indexOf("Behavior");
 
-      const filtered = logData.slice(1).filter(row => {
-        return filterValue === "All" || row[behaviorIndex] === filterValue;
-      });
+      const filtered = logData.slice(1).filter(row =>
+        filterValue === "All" || row[behaviorIndex] === filterValue
+      );
 
       let html = "<thead><tr>";
       for (const col of headers) {
@@ -194,10 +212,33 @@
       const behaviorIndex = headers.indexOf("Behavior");
       const behaviors = new Set(logData.slice(1).map(row => row[behaviorIndex]));
 
-      filterSelect.innerHTML = `<option value="All" selected>All</option>`;
+      // Save current selection
+      const currentValue = filterSelect.value;
+
+      // Remove old options
+      while (filterSelect.options.length > 0) {
+        filterSelect.remove(0);
+      }
+
+      const allOption = document.createElement("option");
+      allOption.value = "All";
+      allOption.textContent = "All";
+      filterSelect.appendChild(allOption);
+
       behaviors.forEach(behavior => {
-        filterSelect.innerHTML += `<option value="${behavior}">${behavior}</option>`;
+        const opt = document.createElement("option");
+        opt.value = behavior;
+        opt.textContent = behavior;
+        filterSelect.appendChild(opt);
       });
+
+      // Re-init Materialize select without causing scroll
+      const instance = M.FormSelect.getInstance(filterSelect);
+      if (instance) instance.destroy();
+      M.FormSelect.init(filterSelect);
+
+      // Restore previous selection if still available
+      filterSelect.value = currentValue;
     }
 
     filterSelect.addEventListener("change", () => {
