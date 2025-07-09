@@ -63,7 +63,11 @@
           if (data.success) {
             result.innerHTML = `<span class="green-text">✅ Welcome, ${data.name} (Similarity: ${similarity})</span>`;
             setTimeout(() => {
-              window.location.href = data.redirect_url || `/upload?name=${encodeURIComponent(data.name)}`;
+              if (data.name) {
+                window.location.href = `/upload?name=${encodeURIComponent(data.name)}`;
+              } else {
+                result.innerHTML = `<span class="red-text">❌ Login failed: No name returned.</span>`;
+              }
             }, 1500);
           } else {
             result.innerHTML = `<span class="red-text">❌ Login failed: ${data.message} (Similarity: ${similarity})</span>`;

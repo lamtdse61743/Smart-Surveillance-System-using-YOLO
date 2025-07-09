@@ -1,55 +1,111 @@
-<!-- templates/stream.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Simulated CCTV Stream</title>
+  <meta charset="UTF-8" />
+  <title>Camera Live Streaming</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
   <style>
     body {
+      background: #f0f0f0;
+      padding: 20px;
+    }
+    .container {
       max-width: 720px;
-      margin: 40px auto;
-      text-align: center;
+      margin: auto;
     }
-    video, img {
-      border: 1px solid #ccc;
-      border-radius: 8px;
+    video {
       width: 100%;
-      max-width: 100%;
-    }
-    #stream-video {
+      border-radius: 8px;
       margin-top: 20px;
+      background: black;
+    }
+    .upload-form {
+      margin-top: 40px;
     }
   </style>
 </head>
 <body>
-  <h4>Simulated CCTV Video Stream</h4>
+  <div class="container">
+    <h4 class="center-align">🔴 Smart Surveillance Live Stream</h4>
 
-  <form id="upload-form" enctype="multipart/form-data" class="card-panel">
-    <div class="file-field input-field">
-      <div class="btn">
-        <span>Select Video</span>
-        <input type="file" name="video" accept="video/*" required>
-      </div>
-      <div class="file-path-wrapper">
-        <input class="file-path validate" type="text" placeholder="Upload a CCTV simulation video">
-      </div>
-    </div>
-    <button class="btn">Start Stream</button>
-  </form>
+    <video id="liveVideo" controls></video>
 
-  <img id="stream-video" src="/video_feed" alt="Live Stream" />
+    <form id="uploadForm" class="upload-form">
+      <div class="file-field input-field">
+        <div class="btn">
+          <span>Upload Stream</span>
+          <input type="file" id="videoInput" accept="video/mp4,video/x-m4v,video/*" required>
+        </div>
+        <div class="file-path-wrapper">
+          <input class="file-path validate" type="text" placeholder="Upload a video to simulate livestream">
+        </div>
+      </div>
+      <button class="btn waves-effect waves-light" type="submit">Start Stream</button>
+    </form>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
   <script>
-    document.getElementById('upload-form').addEventListener('submit', function (e) {
+    const video = document.getElementById('liveVideo');
+    const videoSrc = '/static/output/hls/stream.m3u8';
+
+    // 🧠 Wait for stream.m3u8 to exist before loading
+    async function waitForManifest() {
+      let attempts = 0;
+      while (attempts < 20) { // max wait ~10 seconds
+        const res = await fetch(videoSrc, { method: 'HEAD' });
+        if (res.ok) return true;
+        await new Promise(r => setTimeout(r, 500));
+        attempts++;
+      }
+      return false;
+    }
+
+    // 🧠 Initialize video only if manifest exists
+    async function initStream() {
+      const exists = await waitForManifest();
+      if (!exists) {
+        M.toast({ html: "❌ Stream not ready", classes: "red" });
+        return;
+      }
+
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(videoSrc);
+        hls.attachMedia(video);
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = videoSrc;
+      }
+    }
+
+    initStream();
+
+    // 📤 Upload stream video
+    const uploadForm = document.getElementById('uploadForm');
+    uploadForm.addEventListener('submit', function (e) {
       e.preventDefault();
-      const formData = new FormData(this);
+
+      const input = document.getElementById('videoInput');
+      const file = input.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('video', file);
 
       fetch('/upload-stream', {
         method: 'POST',
         body: formData
-      }).then(() => {
-        document.getElementById('stream-video').src = "/video_feed?" + new Date().getTime();
+      }).then(res => {
+        if (res.ok) {
+          M.toast({ html: "🎥 Video uploaded. Reloading stream...", classes: "green" });
+          setTimeout(() => window.location.reload(), 1500);
+        } else {
+          M.toast({ html: "❌ Failed to upload video", classes: "red" });
+        }
       });
     });
   </script>
