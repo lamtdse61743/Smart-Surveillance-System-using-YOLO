@@ -47,10 +47,23 @@
 
   <div class="container">
     <div id="user-greeting"></div>
+
+    <!-- Live Stream Section (hidden unless stream is active) -->
+    <div id="live-stream-section" class="card-panel" style="display: none;">
+      <h5>🔴 Live Stream In Progress</h5>
+      <video id="live-embed" controls autoplay muted>
+        <source src="/static/output/hls/stream.m3u8" type="application/x-mpegURL">
+        Your browser does not support HLS playback.
+      </video>
+      <div style="margin-top: 10px;">
+        <a href="/stream" class="btn grey">Open Full Stream Page</a>
+      </div>
+    </div>
+
     <div class="center-align" style="margin-top: 10px;">
-        <a href="/stream" class="btn grey">
-            📹 Simulate CCTV Stream
-        </a>
+      <a href="/stream" class="btn grey">
+        📹 Simulate CCTV Stream
+      </a>
     </div>
 
     <h4 class="center-align">Smart Surveillance Processor</h4>
@@ -105,13 +118,29 @@
     document.addEventListener('DOMContentLoaded', function () {
       M.AutoInit();
 
-      // Display user greeting from ?name=...
+      // Display user greeting
       const params = new URLSearchParams(window.location.search);
       const name = params.get("name");
       if (name) {
         document.getElementById("user-greeting").innerHTML = `👋 Welcome back, <strong>${name}</strong>!`;
       }
+
+      checkLiveStream();
+      setInterval(checkLiveStream, 5000); // Poll every 5 seconds
     });
+
+    function checkLiveStream() {
+      fetch("/stream-status")
+        .then(res => res.json())
+        .then(data => {
+          const section = document.getElementById("live-stream-section");
+          if (data.live) {
+            section.style.display = "block";
+          } else {
+            section.style.display = "none";
+          }
+        });
+    }
 
     const form = document.getElementById("upload-form");
     const fill = document.getElementById("progress-fill");
@@ -212,10 +241,7 @@
       const behaviorIndex = headers.indexOf("Behavior");
       const behaviors = new Set(logData.slice(1).map(row => row[behaviorIndex]));
 
-      // Save current selection
       const currentValue = filterSelect.value;
-
-      // Remove old options
       while (filterSelect.options.length > 0) {
         filterSelect.remove(0);
       }
@@ -232,12 +258,10 @@
         filterSelect.appendChild(opt);
       });
 
-      // Re-init Materialize select without causing scroll
       const instance = M.FormSelect.getInstance(filterSelect);
       if (instance) instance.destroy();
       M.FormSelect.init(filterSelect);
 
-      // Restore previous selection if still available
       filterSelect.value = currentValue;
     }
 

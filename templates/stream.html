@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Camera Live Streaming</title>
+  <title>Smart Surveillance Live Stream</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
@@ -24,13 +24,27 @@
     .upload-form {
       margin-top: 40px;
     }
+    .live-badge {
+      position: absolute;
+      top: 40px;
+      left: 30px;
+      background: red;
+      color: white;
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 14px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.3);
+    }
+
   </style>
 </head>
 <body>
   <div class="container">
-    <h4 class="center-align">🔴 Smart Surveillance Live Stream</h4>
+    <h4 class="center-align">Live Camera Simulator</h4>
 
-    <video id="liveVideo" controls></video>
+    <video id="liveVideo" autoplay muted></video>
+    <div class="live-badge">🔴 LIVE</div>
 
     <form id="uploadForm" class="upload-form">
       <div class="file-field input-field">
@@ -52,11 +66,11 @@
   <script>
     const video = document.getElementById('liveVideo');
     const videoSrc = '/static/output/hls/stream.m3u8';
+    video.controls = false;
 
-    // 🧠 Wait for stream.m3u8 to exist before loading
     async function waitForManifest() {
       let attempts = 0;
-      while (attempts < 20) { // max wait ~10 seconds
+      while (attempts < 20) {
         const res = await fetch(videoSrc, { method: 'HEAD' });
         if (res.ok) return true;
         await new Promise(r => setTimeout(r, 500));
@@ -65,7 +79,6 @@
       return false;
     }
 
-    // 🧠 Initialize video only if manifest exists
     async function initStream() {
       const exists = await waitForManifest();
       if (!exists) {
@@ -74,17 +87,35 @@
       }
 
       if (Hls.isSupported()) {
-        const hls = new Hls();
+        const hls = new Hls({
+          maxLiveSyncPlaybackRate: 1.1,
+          liveSyncDuration: 3,
+          enableWorker: true,
+          lowLatencyMode: true
+        });
+
         hls.loadSource(videoSrc);
         hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play();
+        });
+
+        hls.on(Hls.Events.FRAG_LOADED, () => {
+          const liveLatency = hls.latency;
+          if (liveLatency > 5) {
+            video.currentTime = hls.liveSyncPosition;
+          }
+        });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = videoSrc;
+        video.play();
       }
     }
 
     initStream();
 
-    // 📤 Upload stream video
+    // Upload and start stream
     const uploadForm = document.getElementById('uploadForm');
     uploadForm.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -102,7 +133,7 @@
       }).then(res => {
         if (res.ok) {
           M.toast({ html: "🎥 Video uploaded. Reloading stream...", classes: "green" });
-          setTimeout(() => window.location.reload(), 1500);
+          setTimeout(() => window.location.reload(), 2000);
         } else {
           M.toast({ html: "❌ Failed to upload video", classes: "red" });
         }

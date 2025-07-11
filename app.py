@@ -131,34 +131,44 @@ def upload_stream():
 
     video_path = os.path.join(UPLOAD_DIR, "stream_video.mp4")
     hls_folder = os.path.join(OUTPUT_DIR, "hls")
-    
+
     # Clean old HLS files
     for f in os.listdir(hls_folder):
         os.remove(os.path.join(hls_folder, f))
 
     file.save(video_path)
 
-    # Run ffmpeg with livestream-like flags
+    # Run ffmpeg with loop flag
     subprocess.Popen([
-        "ffmpeg",
-        "-re",  # Stream in real-time
-        "-i", video_path,
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-g", "60",
-        "-sc_threshold", "0",
-        "-c:a", "aac",
-        "-ar", "44100",
-        "-b:a", "128k",
-        "-f", "hls",
-        "-hls_time", "2",
-        "-hls_list_size", "5",  # Keep only last 5 segments
-        "-hls_flags", "delete_segments+omit_endlist",  # Don't show future segments
-        "-hls_segment_filename", os.path.join(hls_folder, "stream%d.ts"),
-        os.path.join(hls_folder, "stream.m3u8")
+    "ffmpeg",
+    "-stream_loop", "-1",  # ✅ Loop the video infinitely
+    "-re",                 # Stream in real-time
+    "-i", video_path,
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-g", "60",
+    "-sc_threshold", "0",
+    "-c:a", "aac",
+    "-ar", "44100",
+    "-b:a", "128k",
+    "-f", "hls",
+    "-hls_time", "2",
+    "-hls_list_size", "5",
+    "-hls_flags", "delete_segments+omit_endlist",
+    "-hls_segment_filename", os.path.join(hls_folder, "stream%d.ts"),
+    os.path.join(hls_folder, "stream.m3u8")
     ])
 
+
     return "", 204
+
+@app.route("/stream-status")
+def stream_status():
+    playlist = os.path.join(HLS_DIR, "stream.m3u8")
+    if os.path.exists(playlist):
+        return jsonify(live=True)
+    return jsonify(live=False)
+
 
 @app.route("/hls/<path:filename>")
 def hls_stream(filename):
