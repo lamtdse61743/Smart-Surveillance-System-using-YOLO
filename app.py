@@ -138,29 +138,30 @@ def upload_stream():
 
     file.save(video_path)
 
-    # Run ffmpeg with loop flag
+    # Start ffmpeg subprocess to create HLS stream with DVR support
     subprocess.Popen([
-    "ffmpeg",
-    "-stream_loop", "-1",  # ✅ Loop the video infinitely
-    "-re",                 # Stream in real-time
-    "-i", video_path,
-    "-c:v", "libx264",
-    "-preset", "veryfast",
-    "-g", "60",
-    "-sc_threshold", "0",
-    "-c:a", "aac",
-    "-ar", "44100",
-    "-b:a", "128k",
-    "-f", "hls",
-    "-hls_time", "2",
-    "-hls_list_size", "5",
-    "-hls_flags", "delete_segments+omit_endlist",
-    "-hls_segment_filename", os.path.join(hls_folder, "stream%d.ts"),
-    os.path.join(hls_folder, "stream.m3u8")
+        "ffmpeg",
+        "-stream_loop", "-1",                # loop forever
+        "-re",                               # simulate real-time playback
+        "-i", video_path,
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-g", "60",
+        "-sc_threshold", "0",
+        "-c:a", "aac",
+        "-ar", "44100",
+        "-b:a", "128k",
+        "-f", "hls",
+        "-hls_time", "2",                    # 2s per segment
+        "-hls_list_size", "1000",            # keep 1000 segments (~30+ mins)
+        "-hls_flags", "program_date_time",   # optional: adds timestamps
+        "-hls_segment_filename", os.path.join(hls_folder, "stream%d.ts"),
+        os.path.join(hls_folder, "stream.m3u8")
     ])
 
-
     return "", 204
+
+
 
 @app.route("/stream-status")
 def stream_status():
