@@ -49,16 +49,31 @@
       display: inline-block;
       margin-right: 20px;
     }
+    #loadingContainer {
+      display: flex;
+      justify-content: center;
+      margin-top: 60px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h4 class="center-align">📹 Live Camera Simulator</h4>
 
-    <div class="badge">🔴 LIVE</div>
-    <video id="liveVideo" controls muted></video>
+    <div id="loadingContainer">
+      <div class="preloader-wrapper big active" id="spinner">
+        <div class="spinner-layer spinner-blue-only">
+          <div class="circle-clipper left"><div class="circle"></div></div>
+          <div class="gap-patch"><div class="circle"></div></div>
+          <div class="circle-clipper right"><div class="circle"></div></div>
+        </div>
+      </div>
+    </div>
 
-    <div class="info-bar">
+    <div class="badge" id="liveBadge" style="display:none;">🔴 LIVE</div>
+    <video id="liveVideo" controls muted style="display:none;"></video>
+
+    <div class="info-bar" id="infoBar" style="display:none;">
       <span id="uptime">⏱ Uptime: 0s</span>
       <span id="latency">📶 Delay: 0s</span>
       <span id="segment">📄 Segment: -</span>
@@ -86,6 +101,9 @@
     const uptimeSpan = document.getElementById('uptime');
     const latencySpan = document.getElementById('latency');
     const segmentSpan = document.getElementById('segment');
+    const spinner = document.getElementById('spinner');
+    const infoBar = document.getElementById('infoBar');
+    const liveBadge = document.getElementById('liveBadge');
     let startTime = Date.now();
 
     // Stream uptime timer
@@ -94,12 +112,17 @@
       uptimeSpan.textContent = `⏱ Uptime: ${seconds}s`;
     }, 1000);
 
-    async function waitForManifest() {
+    async function waitForManifest(maxAttempts = 40, interval = 500) {
       let attempts = 0;
-      while (attempts < 20) {
-        const res = await fetch(videoSrc, { method: 'HEAD' });
-        if (res.ok) return true;
-        await new Promise(r => setTimeout(r, 500));
+      while (attempts < maxAttempts) {
+        try {
+          const res = await fetch(videoSrc, {
+            method: 'HEAD',
+            cache: 'no-store'
+          });
+          if (res.ok) return true;
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, interval));
         attempts++;
       }
       return false;
@@ -109,8 +132,14 @@
       const exists = await waitForManifest();
       if (!exists) {
         M.toast({ html: "❌ Stream not ready", classes: "red" });
+        spinner.style.display = "none";
         return;
       }
+
+      spinner.style.display = "none";
+      video.style.display = "block";
+      infoBar.style.display = "block";
+      liveBadge.style.display = "block";
 
       if (Hls.isSupported()) {
         const hls = new Hls({
@@ -162,7 +191,7 @@
       }).then(res => {
         if (res.ok) {
           M.toast({ html: "🎥 Video uploaded. Reloading stream...", classes: "green" });
-          setTimeout(() => window.location.reload(), 2000);
+          setTimeout(() => window.location.reload(), 4000);
         } else {
           M.toast({ html: "❌ Failed to upload video", classes: "red" });
         }

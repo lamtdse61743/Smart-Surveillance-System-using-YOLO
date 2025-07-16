@@ -10,6 +10,7 @@ from facenet_pytorch import InceptionResnetV1
 from sklearn.metrics.pairwise import cosine_similarity
 from video_surveillance_processor import process_video
 import subprocess
+import threading
 
 app = Flask(__name__, static_url_path="/static", static_folder="static")
 
@@ -87,6 +88,7 @@ def verify_face():
     else:
         return jsonify(success=False, message="Face not recognized", similarity=round(best_similarity, 4))
 
+
 @app.route("/upload", methods=["GET", "POST"])
 def upload():
     if request.method == "POST":
@@ -111,6 +113,7 @@ def upload():
 
     return render_template("index.html")
 
+
 @app.route("/progress")
 def progress():
     try:
@@ -119,31 +122,24 @@ def progress():
     except:
         return "0"
 
+
 @app.route("/stream")
 def stream_page():
     return render_template("stream.html")
 
-@app.route("/upload-stream", methods=["POST"])
-def upload_stream():
-    file = request.files.get("video")
-    if not file:
-        return "No video", 400
 
-    video_path = os.path.join(UPLOAD_DIR, "stream_video.mp4")
-    hls_folder = os.path.join(OUTPUT_DIR, "hls")
+def run_stream_processing(input_video_path, hls_output_path):
+    processed_path = os.path.join(OUTPUT_DIR, "processed_stream.mp4")
 
-    # Clean old HLS files
-    for f in os.listdir(hls_folder):
-        os.remove(os.path.join(hls_folder, f))
+    # Run your object detection/face recognition logic
+    process_video(input_video_path, processed_path)
 
-    file.save(video_path)
-
-    # Start ffmpeg subprocess to create HLS stream with DVR support
-    subprocess.Popen([
+    # Convert processed video to HLS segments
+    subprocess.call([
         "ffmpeg",
         "-stream_loop", "-1",                # loop forever
-        "-re",                               # simulate real-time playback
-        "-i", video_path,
+        "-re",                               # simulate real-time
+        "-i", processed_path,
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-g", "60",
@@ -152,29 +148,46 @@ def upload_stream():
         "-ar", "44100",
         "-b:a", "128k",
         "-f", "hls",
-        "-hls_time", "2",                    # 2s per segment
-        "-hls_list_size", "1000",            # keep 1000 segments (~30+ mins)
-        "-hls_flags", "program_date_time",   # optional: adds timestamps
-        "-hls_segment_filename", os.path.join(hls_folder, "stream%d.ts"),
-        os.path.join(hls_folder, "stream.m3u8")
+        "-hls_time", "2",
+        "-hls_list_size", "1000",
+        "-hls_flags", "program_date_time",
+        "-hls_segment_filename", os.path.join(hls_output_path, "stream%d.ts"),
+        os.path.join(hls_output_path, "stream.m3u8")
     ])
 
-    return "", 204
 
+@app.route("/upload-stream", methods=["POST"])
+def upload_stream():
+    file = request.files.get("video")
+    if not file:
+        return "No video", 400
+
+    video_path = os.path.join(UPLOAD_DIR, "stream_video.mp4")
+
+    # Clear previous HLS segments
+    for f in os.listdir(HLS_DIR):
+        os.remove(os.path.join(HLS_DIR, f))
+
+    file.save(video_path)
+
+    # Start async processing and HLS conversion
+    thread = threading.Thread(target=run_stream_processing, args=(video_path, HLS_DIR))
+    thread.daemon = True
+    thread.start()
+
+    return "", 204
 
 
 @app.route("/stream-status")
 def stream_status():
     playlist = os.path.join(HLS_DIR, "stream.m3u8")
-    if os.path.exists(playlist):
-        return jsonify(live=True)
-    return jsonify(live=False)
+    return jsonify(live=os.path.exists(playlist))
 
 
 @app.route("/hls/<path:filename>")
 def hls_stream(filename):
     return send_from_directory(HLS_DIR, filename)
 
-# === Run App ===
+
 if __name__ == "__main__":
     app.run(debug=True)
