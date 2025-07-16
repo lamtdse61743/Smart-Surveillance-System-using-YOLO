@@ -17,6 +17,7 @@
       width: 100%;
       max-height: 480px;
       border-radius: 6px;
+      background: black;
     }
     #progress-container {
       display: none;
@@ -48,13 +49,10 @@
   <div class="container">
     <div id="user-greeting"></div>
 
-    <!-- Live Stream Section (hidden unless stream is active) -->
+    <!-- Live Stream Section -->
     <div id="live-stream-section" class="card-panel" style="display: none;">
       <h5>🔴 Live Stream In Progress</h5>
-      <video id="live-embed" controls autoplay muted>
-        <source src="/static/output/hls/stream.m3u8" type="application/x-mpegURL">
-        Your browser does not support HLS playback.
-      </video>
+      <video id="live-embed" controls autoplay muted></video>
       <div style="margin-top: 10px;">
         <a href="/stream" class="btn grey">Open Full Stream Page</a>
       </div>
@@ -114,11 +112,11 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       M.AutoInit();
 
-      // Display user greeting
       const params = new URLSearchParams(window.location.search);
       const name = params.get("name");
       if (name) {
@@ -126,7 +124,7 @@
       }
 
       checkLiveStream();
-      setInterval(checkLiveStream, 5000); // Poll every 5 seconds
+      setInterval(checkLiveStream, 5000); // Refresh status every 5s
     });
 
     function checkLiveStream() {
@@ -136,12 +134,40 @@
           const section = document.getElementById("live-stream-section");
           if (data.live) {
             section.style.display = "block";
+            setupLiveVideo();
           } else {
             section.style.display = "none";
           }
         });
     }
 
+    function setupLiveVideo() {
+      const video = document.getElementById("live-embed");
+      const source = "/static/output/hls/stream.m3u8";
+
+      if (video.hasAttribute("data-loaded")) return; // prevent re-loading
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 300 // 5-minute history
+        });
+
+        hls.loadSource(source);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.setAttribute("data-loaded", "true");
+          video.play();
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = source;
+        video.play();
+      }
+    }
+
+    // Upload video logic
     const form = document.getElementById("upload-form");
     const fill = document.getElementById("progress-fill");
     const progressContainer = document.getElementById("progress-container");
@@ -283,6 +309,5 @@
       document.body.removeChild(tempLink);
     });
   </script>
-
 </body>
 </html>
