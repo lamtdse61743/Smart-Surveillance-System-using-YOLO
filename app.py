@@ -47,47 +47,53 @@ def login_page():
 def verify_face():
     file = request.files.get("face_image")
     if not file:
-        return jsonify(success=False, message="No image received", similarity=None)
+        return jsonify(success=False, message="No image received", similarity=None, name=None)
 
-    image = Image.open(file).convert("RGB")
-    img_tensor = transform(image).unsqueeze(0).to(device)
+    try:
+        image = Image.open(file).convert("RGB")
+        img_tensor = transform(image).unsqueeze(0).to(device)
 
-    with torch.no_grad():
-        embedding = model(img_tensor).cpu().numpy()
-    embedding = embedding / np.linalg.norm(embedding)
+        with torch.no_grad():
+            embedding = model(img_tensor).cpu().numpy()
+        embedding = embedding / np.linalg.norm(embedding)
 
-    matched_name = None
-    best_similarity = 0.0
-    threshold = 0.55
+        matched_name = None
+        best_similarity = 0.0
+        threshold = 0.55
 
-    for person_name in os.listdir(KNOWN_EMBEDDINGS_DIR):
-        person_dir = os.path.join(KNOWN_EMBEDDINGS_DIR, person_name)
-        if not os.path.isdir(person_dir):
-            continue
+        for person_name in os.listdir(KNOWN_EMBEDDINGS_DIR):
+            person_dir = os.path.join(KNOWN_EMBEDDINGS_DIR, person_name)
+            if not os.path.isdir(person_dir):
+                continue
 
-        embeddings = [
-            np.load(os.path.join(person_dir, f))
-            for f in os.listdir(person_dir) if f.endswith(".npy")
-        ]
+            embeddings = [
+                np.load(os.path.join(person_dir, f))
+                for f in os.listdir(person_dir) if f.endswith(".npy")
+            ]
 
-        if not embeddings:
-            continue
+            if not embeddings:
+                continue
 
-        avg_emb = np.mean([e / np.linalg.norm(e) for e in embeddings], axis=0)
-        sim = cosine_similarity(embedding.reshape(1, -1), avg_emb.reshape(1, -1))[0][0]
+            avg_emb = np.mean([e / np.linalg.norm(e) for e in embeddings], axis=0)
+            sim = cosine_similarity(embedding.reshape(1, -1), avg_emb.reshape(1, -1))[0][0]
 
-        print(f"{person_name} similarity: {sim:.4f}")
+            print(f"{person_name} similarity: {sim:.4f}")
 
-        if sim > best_similarity:
-            best_similarity = sim
-            if sim > threshold:
-                matched_name = person_name
+            if sim > best_similarity:
+                best_similarity = sim
+                if sim > threshold:
+                    matched_name = person_name
 
-    if matched_name:
-        return jsonify(success=True, name=matched_name, similarity=round(float(best_similarity), 4))
-    else:
-        return jsonify(success=False, message="Face not recognized", similarity=round(best_similarity, 4))
+        similarity_score = round(float(best_similarity), 4)
 
+        if matched_name:
+            return jsonify(success=True, name=matched_name, similarity=similarity_score)
+        else:
+            return jsonify(success=False, message="Face not recognized", similarity=similarity_score, name=None)
+
+    except Exception as e:
+        print("Error in verify_face:", str(e))
+        return jsonify(success=False, message="Server error during face verification", similarity=None, name=None)
 
 @app.route("/upload", methods=["GET", "POST"])
 def upload():
@@ -113,7 +119,6 @@ def upload():
 
     return render_template("index.html")
 
-
 @app.route("/progress")
 def progress():
     try:
@@ -122,23 +127,19 @@ def progress():
     except:
         return "0"
 
-
 @app.route("/stream")
 def stream_page():
     return render_template("stream.html")
 
-
 def run_stream_processing(input_video_path, hls_output_path):
     processed_path = os.path.join(OUTPUT_DIR, "processed_stream.mp4")
 
-    # Run your object detection/face recognition logic
     process_video(input_video_path, processed_path)
 
-    # Convert processed video to HLS segments
     subprocess.call([
         "ffmpeg",
-        "-stream_loop", "-1",                # loop forever
-        "-re",                               # simulate real-time
+        "-stream_loop", "-1",
+        "-re",
         "-i", processed_path,
         "-c:v", "libx264",
         "-preset", "veryfast",
@@ -155,7 +156,6 @@ def run_stream_processing(input_video_path, hls_output_path):
         os.path.join(hls_output_path, "stream.m3u8")
     ])
 
-
 @app.route("/upload-stream", methods=["POST"])
 def upload_stream():
     file = request.files.get("video")
@@ -164,30 +164,31 @@ def upload_stream():
 
     video_path = os.path.join(UPLOAD_DIR, "stream_video.mp4")
 
-    # Clear previous HLS segments
     for f in os.listdir(HLS_DIR):
         os.remove(os.path.join(HLS_DIR, f))
 
     file.save(video_path)
 
-    # Start async processing and HLS conversion
     thread = threading.Thread(target=run_stream_processing, args=(video_path, HLS_DIR))
     thread.daemon = True
     thread.start()
 
     return "", 204
 
-
 @app.route("/stream-status")
 def stream_status():
     playlist = os.path.join(HLS_DIR, "stream.m3u8")
     return jsonify(live=os.path.exists(playlist))
 
-
 @app.route("/hls/<path:filename>")
 def hls_stream(filename):
     return send_from_directory(HLS_DIR, filename)
 
+@app.route("/stop-stream", methods=["POST"])
+def stop_stream():
+    for f in os.listdir(HLS_DIR):
+        os.remove(os.path.join(HLS_DIR, f))
+    return jsonify(success=True)
 
 if __name__ == "__main__":
     app.run(debug=True)

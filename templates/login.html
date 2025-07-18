@@ -59,22 +59,27 @@
         })
         .then(res => res.json())
         .then(data => {
+          console.log("Login response:", data);  // Debug log
           const similarity = data.similarity !== undefined ? parseFloat(data.similarity).toFixed(4) : "N/A";
-          if (data.success) {
+
+          if (data.success && data.name) {
             result.innerHTML = `<span class="green-text">✅ Welcome, ${data.name} (Similarity: ${similarity})</span>`;
             setTimeout(() => {
-              if (data.name) {
-                window.location.href = `/upload?name=${encodeURIComponent(data.name)}`;
+              const encodedName = encodeURIComponent(data.name);
+              if (encodedName && encodedName !== "undefined") {
+                window.location.href = `/upload?name=${encodedName}`;
               } else {
-                result.innerHTML = `<span class="red-text">❌ Login failed: No name returned.</span>`;
+                result.innerHTML = `<span class="red-text">❌ Login failed: Invalid user name.</span>`;
               }
             }, 1500);
           } else {
-            result.innerHTML = `<span class="red-text">❌ Login failed: ${data.message} (Similarity: ${similarity})</span>`;
+            const reason = data.message || "Face not recognized.";
+            result.innerHTML = `<span class="red-text">❌ Login failed: ${reason} (Similarity: ${similarity})</span>`;
           }
         })
         .catch(err => {
-          result.innerHTML = `<span class="red-text">Error: ${err.message}</span>`;
+          console.error(err);
+          result.innerHTML = `<span class="red-text">❌ Error: ${err.message}</span>`;
         });
       }, 'image/jpeg');
     });
