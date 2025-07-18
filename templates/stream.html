@@ -90,11 +90,13 @@
         </div>
       </div>
       <button class="btn waves-effect waves-light" type="submit">Start Stream</button>
+      <button class="btn waves-effect waves-light red" type="button" id="stopStreamBtn" style="display:none;">Stop Stream</button>
     </form>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
   <script>
     const video = document.getElementById('liveVideo');
     const videoSrc = '/static/output/hls/stream.m3u8';
@@ -104,83 +106,160 @@
     const spinner = document.getElementById('spinner');
     const infoBar = document.getElementById('infoBar');
     const liveBadge = document.getElementById('liveBadge');
+    const uploadForm = document.getElementById('uploadForm');
+    const stopStreamBtn = document.getElementById('stopStreamBtn');
     let startTime = Date.now();
+    let hls;
 
-    // Stream uptime timer
     setInterval(() => {
       const seconds = Math.floor((Date.now() - startTime) / 1000);
       uptimeSpan.textContent = `⏱ Uptime: ${seconds}s`;
     }, 1000);
 
-    async function waitForManifest(maxAttempts = 40, interval = 500) {
-      let attempts = 0;
-      while (attempts < maxAttempts) {
-        try {
-          const res = await fetch(videoSrc, {
-            method: 'HEAD',
-            cache: 'no-store'
-          });
-          if (res.ok) return true;
-        } catch (e) {}
-        await new Promise(r => setTimeout(r, interval));
-        attempts++;
-      }
-      return false;
+    function waitForSegments(minCount = 2) {
+      return new Promise(resolve => {
+        const check = () => {
+          fetch('/static/output/hls/stream.m3u8', { cache: 'no-store' })
+            .then(res => res.ok ? res.text() : "")
+            .then(data => {
+              const matches = data.match(/stream\d+\.ts/g);
+              if (matches && matches.length >= minCount) {
+                setTimeout(resolve, 1000); // buffer time
+              } else {
+                setTimeout(check, 1000);
+              }
+            })
+            .catch(() => setTimeout(check, 1000));
+        };
+        check();
+      });
     }
 
-    async function initStream() {
-      const exists = await waitForManifest();
-      if (!exists) {
-        M.toast({ html: "❌ Stream not ready", classes: "red" });
-        spinner.style.display = "none";
-        return;
-      }
+    function checkStreamStatus() {
+      console.log('Checking stream status...');
+      fetch('/stream-status')
+        .then(response => response.json())
+        .then(data => {
+          if (data.live) {
+            waitForSegments(2).then(() => {
+              console.log("Enough segments available. Initializing stream...");
+              initStream();
+            });
+          } else {
+            setTimeout(checkStreamStatus, 1000);
+          }
+        })
+        .catch(err => {
+          console.error('Stream status error:', err);
+          M.toast({ html: '❌ Error checking stream status', classes: 'red' });
+          setTimeout(checkStreamStatus, 1000);
+        });
+    }
 
-      spinner.style.display = "none";
-      video.style.display = "block";
-      infoBar.style.display = "block";
-      liveBadge.style.display = "block";
+    function initStream() {
+      console.log('Initializing stream...');
+      spinner.style.display = 'none';
+      video.style.display = 'block';
+      infoBar.style.display = 'block';
+      liveBadge.style.display = 'block';
+      stopStreamBtn.style.display = 'inline-block';
 
       if (Hls.isSupported()) {
-        const hls = new Hls({
+        if (hls) hls.destroy();
+        hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: false,
-          backBufferLength: 300
+          lowLatencyMode: true,
+          backBufferLength: 90,
+          liveSyncDurationCount: 3,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60
         });
 
         hls.loadSource(videoSrc);
         hls.attachMedia(video);
-
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play();
+          console.log('HLS manifest parsed, attempting playback...');
+          attemptPlayback(0);
         });
-
         hls.on(Hls.Events.LEVEL_UPDATED, (_, data) => {
           segmentSpan.textContent = `📄 Segment: ${data.details.fragments.length} segments`;
         });
-
         hls.on(Hls.Events.FRAG_LOADED, (_, data) => {
-          const latency = hls.latency ?? (hls.liveSyncPosition - video.currentTime);
+          const latency = hls.latency || (hls.liveSyncPosition - video.currentTime);
           latencySpan.textContent = `📶 Delay: ${latency.toFixed(1)}s`;
         });
-
         hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error("HLS.js error", data);
+          console.error('HLS.js error:', data);
+          M.toast({ html: `❌ Stream error: ${data.type} - ${data.details}`, classes: 'red' });
+          if (data.fatal) {
+            setTimeout(checkStreamStatus, 1000);
+          }
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = videoSrc;
-        video.play();
+        attemptPlayback(0);
+        updateSegmentCount();
+      } else {
+        M.toast({ html: '❌ HLS not supported by your browser', classes: 'red' });
+        spinner.style.display = 'none';
       }
     }
 
-    initStream();
+    function attemptPlayback(attempt) {
+      const maxAttempts = 3;
+      if (attempt >= maxAttempts) {
+        M.toast({ html: '❌ Failed to start playback after multiple attempts', classes: 'red' });
+        return;
+      }
+      video.play().then(() => {
+        console.log('Playback started');
+      }).catch(e => {
+        console.error(`Playback attempt ${attempt + 1} failed:`, e);
+        if (e.name === 'AbortError') {
+          setTimeout(() => attemptPlayback(attempt + 1), 1000);
+        } else {
+          M.toast({ html: `❌ Playback failed: ${e.message}`, classes: 'red' });
+        }
+      });
+    }
 
-    const uploadForm = document.getElementById('uploadForm');
+    function updateSegmentCount() {
+      fetch(videoSrc, { cache: 'no-store' })
+        .then(response => response.text())
+        .then(data => {
+          const segments = data.match(/stream\d+\.ts/g);
+          const count = segments ? segments.length : 0;
+          segmentSpan.textContent = `📄 Segment: ${count} segments`;
+          if (liveBadge.style.display === 'block') {
+            setTimeout(updateSegmentCount, 1000);
+          }
+        })
+        .catch(err => {
+          segmentSpan.textContent = '📄 Segment: 0';
+          setTimeout(updateSegmentCount, 1000);
+        });
+    }
+
+    const socket = io();
+    socket.on('connect', () => console.log('Connected to WebSocket'));
+    socket.on('stream_stopped', () => {
+      video.style.display = 'none';
+      infoBar.style.display = 'none';
+      liveBadge.style.display = 'none';
+      stopStreamBtn.style.display = 'none';
+      if (hls) hls.destroy();
+      video.src = '';
+      M.toast({ html: '🛑 Stream stopped', classes: 'green' });
+    });
+
     uploadForm.addEventListener('submit', function (e) {
       e.preventDefault();
       const input = document.getElementById('videoInput');
       const file = input.files[0];
-      if (!file) return;
+      if (!file) {
+        M.toast({ html: '❌ No video selected', classes: 'red' });
+        return;
+      }
 
       const formData = new FormData();
       formData.append('video', file);
@@ -188,15 +267,36 @@
       fetch('/upload-stream', {
         method: 'POST',
         body: formData
-      }).then(res => {
-        if (res.ok) {
-          M.toast({ html: "🎥 Video uploaded. Reloading stream...", classes: "green" });
-          setTimeout(() => window.location.reload(), 4000);
-        } else {
-          M.toast({ html: "❌ Failed to upload video", classes: "red" });
-        }
-      });
+      }).then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            M.toast({ html: '🎥 Video uploaded. Starting stream...', classes: 'green' });
+            checkStreamStatus();
+          } else {
+            M.toast({ html: `❌ ${data.message || 'Failed to upload video'}`, classes: 'red' });
+          }
+        })
+        .catch(err => {
+          M.toast({ html: '❌ Upload error occurred', classes: 'red' });
+        });
     });
+
+    stopStreamBtn.addEventListener('click', () => {
+      fetch('/stop-stream', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            M.toast({ html: '🛑 Stream stopped', classes: 'green' });
+          } else {
+            M.toast({ html: '❌ Failed to stop stream', classes: 'red' });
+          }
+        })
+        .catch(err => {
+          M.toast({ html: '❌ Stop stream error occurred', classes: 'red' });
+        });
+    });
+
+    checkStreamStatus();
   </script>
 </body>
 </html>

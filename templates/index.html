@@ -113,6 +113,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       M.AutoInit();
@@ -122,6 +123,26 @@
       if (name) {
         document.getElementById("user-greeting").innerHTML = `👋 Welcome back, <strong>${name}</strong>!`;
       }
+
+      const socket = io();
+      socket.on("connect", () => {
+        console.log("Connected to WebSocket");
+      });
+
+      socket.on("log_update", (data) => {
+        if (logData.length === 0) {
+          logData.push(data.row); // Assume first row is headers if empty
+        }
+        logData.push(data.row);
+        populateLogTable(filterSelect.value);
+        populateFilterOptions();
+        logSection.style.display = "block";
+      });
+
+      socket.on("stream_stopped", () => {
+        document.getElementById("live-stream-section").style.display = "none";
+        M.toast({ html: "🛑 Live stream stopped", classes: "green" });
+      });
 
       checkLiveStream();
       setInterval(checkLiveStream, 5000); // Refresh status every 5s
@@ -160,6 +181,11 @@
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.setAttribute("data-loaded", "true");
           video.play();
+        });
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          console.error("HLS.js error", data);
+          M.toast({ html: "❌ Stream error occurred", classes: "red" });
         });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = source;
@@ -205,6 +231,7 @@
       .then(res => res.json())
       .then(data => {
         clearInterval(pollProgress);
+        progressContainer.style.display = "none";
 
         if (data.output_video) {
           const videoPath = "/static/output/" + data.output_video;
@@ -226,12 +253,13 @@
           };
           checkVideoExists();
         } else {
-          alert("Processing failed.");
+          M.toast({ html: "❌ Processing failed", classes: "red" });
         }
       })
       .catch(err => {
         clearInterval(pollProgress);
-        alert("An error occurred: " + err.message);
+        progressContainer.style.display = "none";
+        M.toast({ html: "❌ An error occurred: " + err.message, classes: "red" });
       });
     });
 

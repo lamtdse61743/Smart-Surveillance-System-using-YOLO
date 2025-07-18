@@ -1,6 +1,8 @@
+
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory
 from werkzeug.utils import secure_filename
 import os
+import cv2
 import csv
 import torch
 import numpy as np
@@ -8,15 +10,20 @@ from PIL import Image
 from torchvision import transforms
 from facenet_pytorch import InceptionResnetV1
 from sklearn.metrics.pairwise import cosine_similarity
-from video_surveillance_processor import process_video
+from video_surveillance_processor import process_video, process_frame
 import subprocess
 import threading
+import time
+from collections import deque
+from flask_socketio import SocketIO
+from filelock import FileLock
 
 app = Flask(__name__, static_url_path="/static", static_folder="static")
+socketio = SocketIO(app)
 
-# === Path Config ===
+# Path Config
 base_dir = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_DIR = os.path.join(base_dir, "uploads")
+UPLOAD_DIR = os.path.join(base_dir, "Uploads")
 OUTPUT_DIR = os.path.join(base_dir, "static", "output")
 HLS_DIR = os.path.join(OUTPUT_DIR, "hls")
 LOG_DIR = os.path.join(base_dir, "log")
@@ -24,21 +31,24 @@ LOG_PATH = os.path.join(LOG_DIR, "log.csv")
 PROGRESS_FILE = os.path.join(LOG_DIR, "progress.txt")
 KNOWN_EMBEDDINGS_DIR = os.path.join(base_dir, "login_embeddings")
 
-# === Ensure Directories Exist ===
 for folder in [UPLOAD_DIR, OUTPUT_DIR, HLS_DIR, LOG_DIR, KNOWN_EMBEDDINGS_DIR]:
     os.makedirs(folder, exist_ok=True)
 
-# === Load FaceNet Model ===
+# FaceNet Model for Login
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
-
-# === Image Transform ===
 transform = transforms.Compose([
     transforms.Resize((160, 160)),
     transforms.ToTensor(),
     transforms.Normalize([0.5], [0.5])
 ])
 
+# File Validation
+ALLOWED_EXTENSIONS = {".mp4", ".m4v"}
+def allowed_file(filename):
+    return os.path.splitext(filename)[1].lower() in ALLOWED_EXTENSIONS
+
+# Login Routes
 @app.route("/")
 def login_page():
     return render_template("login.html")
@@ -95,10 +105,13 @@ def verify_face():
         print("Error in verify_face:", str(e))
         return jsonify(success=False, message="Server error during face verification", similarity=None, name=None)
 
+# Video Upload and Processing
 @app.route("/upload", methods=["GET", "POST"])
 def upload():
     if request.method == "POST":
         file = request.files["video"]
+        if not allowed_file(file.filename):
+            return jsonify(success=False, message="Invalid video format"), 400
         filename = secure_filename(file.filename)
         input_path = os.path.join(UPLOAD_DIR, filename)
         file.save(input_path)
@@ -111,9 +124,10 @@ def upload():
 
         log_data = []
         if os.path.exists(LOG_PATH):
-            with open(LOG_PATH, newline="") as f:
-                reader = csv.reader(f)
-                log_data = list(reader)
+            with FileLock(LOG_PATH + ".lock"):
+                with open(LOG_PATH, newline="") as f:
+                    reader = csv.reader(f)
+                    log_data = list(reader)
 
         return jsonify(output_video=output_filename, log_data=log_data)
 
@@ -122,58 +136,159 @@ def upload():
 @app.route("/progress")
 def progress():
     try:
-        with open(PROGRESS_FILE, "r") as f:
-            return f.read().strip()
+        with FileLock(PROGRESS_FILE + ".lock"):
+            with open(PROGRESS_FILE, "r") as f:
+                return f.read().strip()
     except:
         return "0"
 
+# Streaming Routes
 @app.route("/stream")
 def stream_page():
     return render_template("stream.html")
 
 def run_stream_processing(input_video_path, hls_output_path):
-    processed_path = os.path.join(OUTPUT_DIR, "processed_stream.mp4")
+    # Initialize video capture
+    cap = cv2.VideoCapture(input_video_path)
+    if not cap.isOpened():
+        print(f"Error: Cannot open video {input_video_path}")
+        socketio.emit("stream_stopped")
+        return
 
-    process_video(input_video_path, processed_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    subprocess.call([
+    # FFmpeg command to pipe processed frames and input audio
+    ffmpeg_cmd = [
         "ffmpeg",
-        "-stream_loop", "-1",
-        "-re",
-        "-i", processed_path,
+        "-y",
+        "-f", "rawvideo",
+        "-vcodec", "rawvideo",
+        "-pix_fmt", "bgr24",
+        "-s", f"{width}x{height}",
+        "-r", str(fps),
+        "-i", "-",  # raw video from stdin  
+        "-f", "lavfi",
+        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",  # fake audio input
+        "-shortest",
         "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-g", "60",
+        "-preset", "ultrafast",
+        "-pix_fmt", "yuv420p",
+        "-profile:v", "baseline",
+        "-level", "3.0",
+        "-g", "30",
         "-sc_threshold", "0",
         "-c:a", "aac",
-        "-ar", "44100",
         "-b:a", "128k",
+        "-ar", "44100",
+        "-ac", "2",
+        "-map", "0:v:0",
+        "-map", "1:a:0",
         "-f", "hls",
-        "-hls_time", "2",
+        "-hls_time", "4",
         "-hls_list_size", "1000",
-        "-hls_flags", "program_date_time",
+        "-hls_flags", "delete_segments+append_list+program_date_time",
         "-hls_segment_filename", os.path.join(hls_output_path, "stream%d.ts"),
         os.path.join(hls_output_path, "stream.m3u8")
-    ])
+    ]
+
+
+    # Start FFmpeg process in binary mode
+    ffmpeg_process = subprocess.Popen(
+        ffmpeg_cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=False  # Binary mode for stdin
+    )
+
+    # Log FFmpeg output
+    def stream_ffmpeg_output():
+        for line in ffmpeg_process.stderr:
+            print(f"FFmpeg: {line.decode('utf-8', errors='ignore').strip()}")
+    threading.Thread(target=stream_ffmpeg_output, daemon=True).start()
+
+    # Continuous frame processing
+    log_buffer = []
+    recent_persons = deque()
+    last_person_proximity_time = [0]
+    home_arrivals = set()
+    persistent_boxes = []
+    frame_num = 0
+
+    # Write initial log header if file doesn't exist
+    if not os.path.exists(LOG_PATH):
+        with FileLock(LOG_PATH + ".lock"):
+            with open(LOG_PATH, mode="w", newline="") as log_file:
+                log_writer = csv.writer(log_file)
+                log_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Closest Person Distance (m)"])
+
+    # Wait briefly to ensure FFmpeg is ready
+    time.sleep(1)
+
+    while True:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset for looping
+        for _ in range(frame_count):
+            try:
+                ret, frame = cap.read()
+                if not ret:
+                    print("End of video reached, restarting loop")
+                    break
+                frame_num += 1
+                annotated, log_buffer, recent_persons, last_person_proximity_time, home_arrivals, persistent_boxes = process_frame(
+                    frame, frame_num, fps, log_buffer, recent_persons, last_person_proximity_time, home_arrivals, persistent_boxes,
+                    emit_callback=lambda entry: socketio.emit("log_update", {"row": entry})
+                )
+                # Write frame to FFmpeg pipe
+                ffmpeg_process.stdin.write(annotated.tobytes())
+                ffmpeg_process.stdin.flush()
+                # Append new log entries to file
+                if log_buffer:
+                    with FileLock(LOG_PATH + ".lock"):
+                        with open(LOG_PATH, mode="a", newline="") as log_file:
+                            log_writer = csv.writer(log_file)
+                            for entry in log_buffer:
+                                log_writer.writerow(entry)
+                    log_buffer.clear()
+                time.sleep(1 / fps)  # Simulate real-time
+            except Exception as e:
+                print(f"Frame processing error: {e}")
+                break
+        if ffmpeg_process.poll() is not None:  # FFmpeg terminated
+            print("FFmpeg process ended unexpectedly")
+            break
+
+    cap.release()
+    ffmpeg_process.stdin.close()
+    ffmpeg_process.terminate()
+    try:
+        ffmpeg_process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        ffmpeg_process.kill()
+    socketio.emit("stream_stopped")
 
 @app.route("/upload-stream", methods=["POST"])
 def upload_stream():
     file = request.files.get("video")
-    if not file:
-        return "No video", 400
+    if not file or not allowed_file(file.filename):
+        return jsonify(success=False, message="Invalid or no video"), 400
 
     video_path = os.path.join(UPLOAD_DIR, "stream_video.mp4")
-
     for f in os.listdir(HLS_DIR):
         os.remove(os.path.join(HLS_DIR, f))
-
     file.save(video_path)
+
+    with FileLock(PROGRESS_FILE + ".lock"):
+        with open(PROGRESS_FILE, "w") as f:
+            f.write("0")
 
     thread = threading.Thread(target=run_stream_processing, args=(video_path, HLS_DIR))
     thread.daemon = True
     thread.start()
 
-    return "", 204
+    return jsonify(success=True), 200
 
 @app.route("/stream-status")
 def stream_status():
@@ -188,7 +303,8 @@ def hls_stream(filename):
 def stop_stream():
     for f in os.listdir(HLS_DIR):
         os.remove(os.path.join(HLS_DIR, f))
+    socketio.emit("stream_stopped")
     return jsonify(success=True)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    socketio.run(app, debug=True)
