@@ -17,7 +17,7 @@ general_model_path = os.path.join(base_dir, "models", "yolov9t.pt")
 log_path = os.path.join(base_dir, "log", "log.csv")
 progress_file = os.path.join(base_dir, "log", "progress.txt")
 
-# Load YOLO models with error handling
+# Load YOLO models
 try:
     model_box = YOLO(box_model_path)
     model_general = YOLO(general_model_path)
