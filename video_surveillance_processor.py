@@ -19,8 +19,11 @@ progress_file = os.path.join(base_dir, "log", "progress.txt")
 
 # Load YOLO models
 try:
+    print(f"Loading box model from: {box_model_path}")
     model_box = YOLO(box_model_path)
+    print(f"Box model loaded: {model_box is not None}")
     model_general = YOLO(general_model_path)
+    print(f"General model loaded: {model_general is not None}")
 except Exception as e:
     print(f"Error loading YOLO models: {e}")
     model_box = None
@@ -99,14 +102,14 @@ def process_video(input_path, output_path):
     def notify_local(title, message):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_buffer.append([
-            str(uuid.uuid4()), "N/A", "Alert", title, message, "", now, ""
+            str(uuid.uuid4()), "N/A", "Alert", title, "", "", now, ""
         ])
 
     # Write log header if file doesn't exist
     if not os.path.exists(log_path):
         with open(log_path, mode="w", newline="") as log_file:
             log_writer = csv.writer(log_file)
-            log_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Closest Person Distance (m)"])
+            log_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Notification"])
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -153,36 +156,65 @@ def process_video(input_path, output_path):
                     log_buffer.append([
                         str(uuid.uuid4()), frame_num, "Door Open", label, "", round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
                     ])
-                    notify_local("Home Owner Detected", f"{label} just came home!")
+                    # Add notification row with message in Notification column
+                    log_buffer.append([
+                        str(uuid.uuid4()), frame_num, "Alert", "Home Owner Detected", "", "", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), f"{label} just came home!"
+                    ])
 
         persistent_boxes = [(b, l, t - 1) for (b, l, t) in persistent_boxes if t > 1]
 
         if frame_num % frame_skip == 0:
+            # Run general model for all except box
+            general_results = []
             if model_general:
                 detections = model_general.track(frame, persist=True, verbose=False, tracker="bytetrack.yaml")[0]
                 if detections.boxes.id is not None:
                     for box, cls_id, track_id in zip(detections.boxes.xyxy, detections.boxes.cls, detections.boxes.id):
                         cls_id = int(cls_id)
-                        if cls_id not in target_classes:
+                        if cls_id not in target_classes or cls_id == 80:
                             continue
-
                         x1, y1, x2, y2 = map(int, box.tolist())
                         label = target_classes[cls_id]
                         box_height = y2 - y1
                         height_m = real_height_m.get(cls_id, 1.0)
                         distance_m = (focal_px * height_m) / box_height if box_height > 0 else None
                         text = f"{label}: {distance_m:.2f} m" if distance_m else f"{label}"
-
                         persistent_boxes.append(((x1, y1, x2, y2), text, persistent_ttl))
-
                         if cls_id == 0 and distance_m and distance_m < 5.0:
                             if current_time - last_person_proximity_time[0] > person_proximity_cooldown_sec:
-                                notify_local("Proximity Alert", f"Person detected at {distance_m:.2f} meters")
                                 log_buffer.append([
                                     str(uuid.uuid4()), frame_num, "Proximity Alert", label, round(distance_m, 2), round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
                                 ])
                                 recent_persons.append((track_id, distance_m, frame_num))
                                 last_person_proximity_time[0] = current_time
+
+            # Run box model for delivery box detection (class 80)
+            if model_box:
+                print("Running box model for delivery box detection...")
+                results = model_box(frame)[0]
+                # Print all detected class indices for this frame
+                if results.boxes is not None and results.boxes.cls is not None:
+                    detected_classes = [int(cls_id) for cls_id in results.boxes.cls]
+                    print(f"Box model detected class indices: {detected_classes}")
+                    for box, cls_id in zip(results.boxes.xyxy, results.boxes.cls):
+                        cls_id = int(cls_id)
+                        print(f"Detected class: {cls_id}")
+                        if cls_id != 80:
+                            continue
+                        print(f"Detected delivery box at: {box.tolist()}")
+                        x1, y1, x2, y2 = map(int, box.tolist())
+                        label = target_classes.get(cls_id, str(cls_id))
+                        box_height = y2 - y1
+                        height_m = real_height_m.get(cls_id, 0.1)
+                        distance_m = (focal_px * height_m) / box_height if box_height > 0 else None
+                        text = f"{label}: {distance_m:.2f} m" if distance_m else f"{label}"
+                        persistent_boxes.append(((x1, y1, x2, y2), text, persistent_ttl))
+                        # Log delivery box detection
+                        log_buffer.append([
+                            str(uuid.uuid4()), frame_num, "Box Detected", label, round(distance_m, 2) if distance_m else "", round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Delivery box detected"
+                        ])
+                else:
+                    print("No boxes or classes detected by box model.")
 
         for (x1, y1, x2, y2), text, _ in persistent_boxes:
             cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Fixed RMSE2 to 2
@@ -197,8 +229,13 @@ def process_video(input_path, output_path):
     with open(log_path, mode="a", newline="") as log_file:
         log_writer = csv.writer(log_file)
         if os.path.getsize(log_path) == 0:  # Write header only if file is empty
-            log_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Closest Person Distance (m)"])
+            log_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Notification"])
         for entry in log_buffer:
+            # Remove the last column if there are 8 columns (old format)
+            if len(entry) == 8:
+                entry = entry[:-1] + [entry[-1]]  # keep the last as notification
+            elif len(entry) == 7:
+                entry = entry + [""]
             log_writer.writerow(entry)
 
     return os.path.basename(output_path)
@@ -210,7 +247,7 @@ def process_frame(frame, frame_num, fps, log_buffer, recent_persons, last_person
 
     def notify_local(title, message):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        entry = [str(uuid.uuid4()), frame_num, "Alert", title, message, "", now, ""]
+        entry = [str(uuid.uuid4()), frame_num, "Alert", title, "", "", now, message]
         log_buffer.append(entry)
         if emit_callback:
             emit_callback(entry)
@@ -246,7 +283,10 @@ def process_frame(frame, frame_num, fps, log_buffer, recent_persons, last_person
                 log_buffer.append([
                     str(uuid.uuid4()), frame_num, "Door Open", label, "", round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
                 ])
-                notify_local("Home Owner Detected", f"{label} just came home!")
+                # Add notification row with message in Notification column
+                log_buffer.append([
+                    str(uuid.uuid4()), frame_num, "Alert", "Home Owner Detected", "", "", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), f"{label} just came home!"
+                ])
 
     persistent_boxes[:] = [(b, l, t - 1) for (b, l, t) in persistent_boxes if t > 1]
 
@@ -270,7 +310,6 @@ def process_frame(frame, frame_num, fps, log_buffer, recent_persons, last_person
 
                     if cls_id == 0 and distance_m and distance_m < 5.0:
                         if current_time - last_person_proximity_time[0] > person_proximity_cooldown_sec:
-                            notify_local("Proximity Alert", f"Person detected at {distance_m:.2f} meters")
                             log_buffer.append([
                                 str(uuid.uuid4()), frame_num, "Proximity Alert", label, round(distance_m, 2), round(timestamp, 2), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
                             ])

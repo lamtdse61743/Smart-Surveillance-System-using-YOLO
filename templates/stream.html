@@ -189,6 +189,20 @@
           latencySpan.textContent = `📶 Delay: ${latency.toFixed(1)}s`;
         });
         hls.on(Hls.Events.ERROR, (event, data) => {
+          // Suppress bufferStalledError and mediaError, show waiting message instead of error
+          if (
+            data.type === 'mediaError' ||
+            (data.type === 'networkError' && data.details === 'bufferStalledError')
+          ) {
+            spinner.style.display = 'flex';
+            video.style.display = 'none';
+            infoBar.style.display = 'none';
+            liveBadge.style.display = 'none';
+            // Wait and retry stream status
+            setTimeout(checkStreamStatus, 1000);
+            return;
+          }
+          // For other errors, show toast
           console.error('HLS.js error:', data);
           M.toast({ html: `❌ Stream error: ${data.type} - ${data.details}`, classes: 'red' });
           if (data.fatal) {

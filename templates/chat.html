@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gemini Chat - Smart Surveillance</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    body { background: #f0f0f0; padding: 20px; }
+    .container { max-width: 600px; margin: auto; }
+    .chat-box { background: #fff; border-radius: 8px; padding: 20px; min-height: 400px; max-height: 60vh; overflow-y: auto; margin-bottom: 20px; }
+    .msg { margin-bottom: 12px; padding: 10px 16px; border-radius: 16px; display: inline-block; max-width: 85%; word-break: break-word; }
+    .msg.user { text-align: right; color: #1976d2; background: #e3f2fd; float: right; clear: both; }
+    .msg.gemini { text-align: left; color: #388e3c; background: #e8f5e9; float: left; clear: both; }
+    .input-row { display: flex; }
+    .input-row input { flex: 1; margin-right: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h5 class="center-align">💬 Chat with your Surveillance AI Assistant</h5>
+    <div class="chat-box" id="chatBox"></div>
+    <!-- Removed Send Event Statistics to AI button -->
+    <form id="chatForm" class="input-row">
+      <input type="text" id="userInput" placeholder="Ask about your house..." autocomplete="off" required />
+      <button class="btn waves-effect waves-light" type="submit">Send</button>
+    </form>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script>
+    // Pure chat interface, no send stats button
+    const chatBox = document.getElementById('chatBox');
+    const chatForm = document.getElementById('chatForm');
+    const userInput = document.getElementById('userInput');
+
+    function appendMsg(text, sender) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + sender;
+      div.textContent = text;
+      chatBox.appendChild(div);
+      // Clear floats for next message
+      const clearDiv = document.createElement('div');
+      clearDiv.style.clear = 'both';
+      chatBox.appendChild(clearDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    chatForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const text = userInput.value.trim();
+      if (!text) return;
+      appendMsg(text, 'user');
+      userInput.value = '';
+      // Instead of relying on querySelector, keep a reference to the Gemini placeholder
+      const geminiDiv = document.createElement('div');
+      geminiDiv.className = 'msg gemini';
+      geminiDiv.textContent = '...';
+      chatBox.appendChild(geminiDiv);
+      // Clear floats for next message
+      const clearDiv = document.createElement('div');
+      clearDiv.style.clear = 'both';
+      chatBox.appendChild(clearDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      })
+      .then(res => {
+        // Log raw response for debugging
+        res.clone().text().then(txt => {
+          console.log('[Gemini] Raw response:', txt);
+        });
+        return res.json();
+      })
+      .then(data => {
+        console.log('[Gemini] Parsed response:', data);
+        if (data && data.hasOwnProperty('reply')) {
+          const fullText = String(data.reply);
+          let i = 0;
+          const duration = 3000; // 3 seconds
+          const step = Math.max(1, Math.ceil(fullText.length / (duration / 30)));
+          function type() {
+            i += step;
+            geminiDiv.textContent = fullText.slice(0, i);
+            if (i < fullText.length) {
+              setTimeout(type, 30);
+            } else {
+              geminiDiv.textContent = fullText;
+            }
+          }
+          type();
+        } else {
+          geminiDiv.textContent = 'Error: Gemini did not return a reply. (data=' + JSON.stringify(data) + ')';
+        }
+      })
+      .catch(() => {
+        geminiDiv.textContent = 'Error: Could not reach Gemini.';
+      });
+    });
+  </script>
+</body>
+</html>

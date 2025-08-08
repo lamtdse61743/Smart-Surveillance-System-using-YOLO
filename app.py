@@ -1,5 +1,5 @@
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, Response
 from werkzeug.utils import secure_filename
 import os
 import cv2
@@ -142,10 +142,152 @@ def progress():
     except:
         return "0"
 
+
 # Streaming Routes
 @app.route("/stream")
 def stream_page():
     return render_template("stream.html")
+
+
+# Serve the log.csv as JSON with optional filtering
+@app.route("/log-json")
+def log_json():
+    # Get filter params
+    event_type = request.args.get("type", None)
+    person = request.args.get("person", None)
+    date_from = request.args.get("date_from", None)
+    date_to = request.args.get("date_to", None)
+    try:
+        if os.path.exists(LOG_PATH):
+            with FileLock(LOG_PATH + ".lock"):
+                with open(LOG_PATH, newline="") as f:
+                    reader = csv.reader(f)
+                    rows = list(reader)
+            if not rows:
+                return jsonify(log_data=[])
+            header = rows[0]
+            data = rows[1:]
+            # Filtering
+            filtered = []
+            for row in data:
+                # Columns: Event ID, Frame, Behavior, Class, Distance (m), Timestamp (s), Event Time (system), Notification
+                match = True
+                if event_type and event_type.lower() not in row[2].lower():
+                    match = False
+                if person and person.lower() not in row[3].lower():
+                    match = False
+                if date_from or date_to:
+                    # Event Time (system) is row[6], format: YYYY-MM-DD HH:MM:SS
+                    try:
+                        event_time = row[6][:19]
+                        if date_from and event_time < date_from:
+                            match = False
+                        if date_to and event_time > date_to:
+                            match = False
+                    except:
+                        pass
+                if match:
+                    filtered.append(row)
+            return jsonify(log_data=[header] + filtered)
+        else:
+            return jsonify(log_data=[])
+    except Exception as e:
+        return jsonify(log_data=[], error=str(e)), 500
+
+# Route for event statistics (for charts)
+@app.route("/log-stats")
+def log_stats():
+    try:
+        if not os.path.exists(LOG_PATH):
+            print("[log-stats] log.csv does not exist")
+            return jsonify(stats={})
+        with FileLock(LOG_PATH + ".lock"):
+            with open(LOG_PATH, newline="") as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+        print(f"[log-stats] header: {rows[0] if rows else 'NO HEADER'}")
+        print(f"[log-stats] first 3 rows: {rows[1:4] if len(rows) > 1 else 'NO DATA'}")
+        if len(rows) < 2:
+            print("[log-stats] Not enough rows for stats")
+            return jsonify(stats={})
+        header = rows[0]
+        data = rows[1:]
+        # Defensive: skip rows with wrong length
+        data = [row for row in data if len(row) == len(header)]
+        print(f"[log-stats] filtered data rows: {len(data)}")
+        # Count by event type (Behavior)
+        from collections import Counter, defaultdict
+        type_counts = Counter(row[2] for row in data)
+        person_counts = Counter(row[3] for row in data)
+        hour_counts = defaultdict(int)
+        for row in data:
+            try:
+                hour = row[6][11:13]  # HH from YYYY-MM-DD HH:MM:SS
+                hour_counts[hour] += 1
+            except Exception as e:
+                print(f"[log-stats] hour parse error: {e} row={row}")
+        stats = {
+            "type_counts": dict(type_counts),
+            "person_counts": dict(person_counts),
+            "hour_counts": dict(hour_counts)
+        }
+        print(f"[log-stats] type_counts: {stats['type_counts']}")
+        print(f"[log-stats] person_counts: {stats['person_counts']}")
+        print(f"[log-stats] hour_counts: {stats['hour_counts']}")
+        return jsonify(stats=stats)
+    except Exception as e:
+        print(f"[log-stats] error: {e}")
+        return jsonify(stats={}, error=str(e)), 500
+
+# Gemini Chat Page (GET: render, POST: chat)
+@app.route("/chat", methods=["GET", "POST"])
+def chat_page():
+    if request.method == "GET":
+        return render_template("chat.html")
+    # POST: handle chat
+    data = request.get_json()
+    user_message = data.get("message", "")
+    # --- RAG: Retrieve relevant log context ---
+    log_context = ""
+    try:
+        if os.path.exists(LOG_PATH):
+            with FileLock(LOG_PATH + ".lock"):
+                with open(LOG_PATH, newline="") as f:
+                    rows = list(csv.reader(f))
+                    # Get last 20 events for context
+                    if len(rows) > 1:
+                        header = rows[0]
+                        last_events = rows[-20:]
+                        log_context = "\n".join([", ".join(row) for row in last_events])
+    except Exception as e:
+        log_context = "(Could not load log context)"
+
+    # --- Gemini API call (placeholder) ---
+    # You must set your Gemini API key as GEMINI_API_KEY env var
+    import requests
+    GEMINI_API_KEY = "AIzaSyCGM9wvYHrU3F6qhkBfF3wjMVktmqKt_tY"
+    print(f"[Gemini] Using API key: {GEMINI_API_KEY}")
+    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY
+    prompt = f"You are the smart surveillance system for this house. Here is a summary of recent events from the surveillance log:\n{log_context}\n\nUser question: {user_message}\n\nPlease answer in a friendly, conversational way, as if you are the home's helpful AI guardian."
+    reply = "(Gemini API not configured)"
+    if GEMINI_API_KEY:
+        try:
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}]
+            }
+            print(f"[Gemini] Sending request to: {gemini_url}")
+            resp = requests.post(gemini_url, json=payload, timeout=40)
+            print(f"[Gemini] Response status: {resp.status_code}")
+            if resp.ok:
+                data = resp.json()
+                print(f"[Gemini] Response data: {data}")
+                reply = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "(No answer)")
+            else:
+                reply = f"Gemini API error: {resp.status_code}"
+        except Exception as e:
+            print(f"[Gemini] Exception: {e}")
+            reply = f"Gemini API error: {str(e)}"
+    return jsonify(reply=reply)
 
 def run_stream_processing(input_video_path, hls_output_path):
     # Initialize video capture
@@ -251,6 +393,8 @@ def run_stream_processing(input_video_path, hls_output_path):
                             log_writer = csv.writer(log_file)
                             for entry in log_buffer:
                                 log_writer.writerow(entry)
+                            log_file.flush()
+                            os.fsync(log_file.fileno())
                     log_buffer.clear()
                 time.sleep(1 / fps)  # Simulate real-time
             except Exception as e:

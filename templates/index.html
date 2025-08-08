@@ -42,11 +42,22 @@
       font-size: 1.2rem;
       color: #2c3e50;
     }
+    /* Force canvas display for Safari debugging */
+    canvas {
+      display: block !important;
+      min-height: 300px !important;
+      width: 300px !important;
+      height: 300px !important;
+      max-width: 100% !important;
+      border: 2px dashed #e67e22 !important; /* Debug border */
+      background: #fff !important;
+    }
   </style>
 </head>
 <body>
 
-  <div class="container">
+    <div class="container">
+      <div id="video-status" style="display:none; text-align:center; color:#e67e22; font-weight:bold; margin-bottom:10px;"></div>
     <div id="user-greeting"></div>
 
     <!-- Live Stream Section -->
@@ -64,7 +75,11 @@
       </a>
     </div>
 
+
     <h4 class="center-align">Smart Surveillance Processor</h4>
+    <div class="center-align" style="margin: 20px 0 10px 0;">
+      <a href="/chat" class="btn waves-effect waves-light blue"><i class="material-icons left">chat</i>ASK YOUR SURVEILLANCE AI ASSISTANT!</a>
+    </div>
     <p class="center-align">Upload a video to detect people, faces, and behaviors. View logs and filter events below.</p>
 
     <form id="upload-form" enctype="multipart/form-data" class="card-panel">
@@ -94,17 +109,49 @@
       <a id="download-link" class="btn blue" href="#" download>Download Output Video</a>
     </div>
 
+    <!-- Event Statistics Dashboard -->
+    <div id="stats-section" class="card-panel">
+      <h5>Event Statistics</h5>
+      <div id="stats-message" style="color:#e67e22; font-weight:bold; display:none;">No event statistics available.</div>
+      <div class="row">
+        <div class="col s12 m4" style="min-height:320px;">
+          <canvas id="typeChart" width="300" height="300" style="min-height:300px;"></canvas>
+          <div id="typeChart-fallback" style="color:#e67e22; text-align:center; display:none;">[Type Chart not supported]</div>
+        </div>
+        <div class="col s12 m4" style="min-height:320px;">
+          <canvas id="personChart" width="300" height="300" style="min-height:300px;"></canvas>
+          <div id="personChart-fallback" style="color:#e67e22; text-align:center; display:none;">[Person Chart not supported]</div>
+        </div>
+        <div class="col s12 m4" style="min-height:320px;">
+          <canvas id="hourChart" width="300" height="300" style="min-height:300px;"></canvas>
+          <div id="hourChart-fallback" style="color:#e67e22; text-align:center; display:none;">[Hour Chart not supported]</div>
+        </div>
+      </div>
+    </div>
+
     <div id="log-section" class="card-panel">
       <h5>Event Log</h5>
       <div class="row log-controls">
-        <div class="input-field col s6">
+        <div class="input-field col s3">
           <select id="behavior-filter">
             <option value="All" selected>All</option>
           </select>
-          <label>Filter by Behavior</label>
+          <label>Behavior</label>
         </div>
-        <div class="col s6 right-align">
-          <a class="btn green" id="download-csv">Download CSV</a>
+        <div class="input-field col s3">
+          <input type="text" id="person-filter" placeholder="Person name">
+          <label for="person-filter">Person</label>
+        </div>
+        <div class="input-field col s3">
+          <input type="date" id="date-from-filter">
+          <label for="date-from-filter" class="active">From Date</label>
+        </div>
+        <div class="input-field col s3">
+          <input type="date" id="date-to-filter">
+          <label for="date-to-filter" class="active">To Date</label>
+        </div>
+        <div class="input-field col s12 right-align">
+          <div id="pagination-controls" style="display:inline-block;"></div>
         </div>
       </div>
       <table class="striped responsive-table" id="log-table"></table>
@@ -114,7 +161,19 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/static/chat_stats_helper.js"></script>
   <script>
+
+    // Top-level log variables for real-time update
+    // Declare log variables at top level only (no duplicates)
+    let logData = [];
+    let currentPage = 1;
+    let pageSize = 10;
+    const logSection = document.getElementById("log-section");
+    const logTable = document.getElementById("log-table");
+    const filterSelect = document.getElementById("behavior-filter");
+
     document.addEventListener('DOMContentLoaded', function () {
       M.AutoInit();
 
@@ -130,14 +189,89 @@
       });
 
       socket.on("log_update", (data) => {
-        if (logData.length === 0) {
-          logData.push(data.row); // Assume first row is headers if empty
-        }
-        logData.push(data.row);
-        populateLogTable(filterSelect.value);
-        populateFilterOptions();
-        logSection.style.display = "block";
+        // Replaced WebSocket log update with polling log.csv for exact sync
+        // This handler is now a no-op or can be used for notifications only
       });
+
+
+
+      // --- Filtering controls ---
+      const personFilter = document.getElementById('person-filter');
+      const dateFromFilter = document.getElementById('date-from-filter');
+      const dateToFilter = document.getElementById('date-to-filter');
+
+      function fetchLogJson() {
+        // Build query string for filters
+        const params = new URLSearchParams();
+        if (filterSelect.value && filterSelect.value !== 'All') params.append('type', filterSelect.value);
+        if (personFilter.value) params.append('person', personFilter.value);
+        if (dateFromFilter.value) params.append('date_from', dateFromFilter.value);
+        if (dateToFilter.value) params.append('date_to', dateToFilter.value);
+        params.append('ts', Date.now());
+        fetch('/log-json?' + params.toString())
+          .then(res => res.json())
+          .then(data => {
+            if (data.log_data && data.log_data.length > 0) {
+              logData = data.log_data;
+              currentPage = 1;
+              populateFilterOptions();
+              populateLogTable(filterSelect.value, currentPage);
+              logSection.style.display = "block";
+            } else {
+              logTable.innerHTML = '<tr><td colspan="99" style="text-align:center;color:#e67e22;font-weight:bold;">Log file not ready yet. Please wait for processing...</td></tr>';
+              logSection.style.display = "block";
+            }
+          })
+          .catch(() => {
+            logTable.innerHTML = '<tr><td colspan="99" style="text-align:center;color:#e67e22;font-weight:bold;">Log file not ready yet. Please wait for processing...</td></tr>';
+            logSection.style.display = "block";
+          });
+      }
+      setInterval(fetchLogJson, 5000);
+      fetchLogJson();
+
+      // --- Stats charts ---
+      function fetchStats() {
+        fetch('/log-stats?ts=' + Date.now())
+          .then(res => res.json())
+          .then(data => {
+            console.log('[EventStats] Received:', data);
+            const statsSection = document.getElementById('stats-section');
+            const statsMsg = document.getElementById('stats-message');
+            try {
+              if (data.stats && (
+                  Object.keys(data.stats.type_counts||{}).length > 0 ||
+                  Object.keys(data.stats.person_counts||{}).length > 0 ||
+                  Object.keys(data.stats.hour_counts||{}).length > 0)) {
+                statsMsg.style.display = 'none';
+                renderTypeChart(data.stats.type_counts||{});
+                renderPersonChart(data.stats.person_counts||{});
+                renderHourChart(data.stats.hour_counts||{});
+                // Safari fix: force redraw after short delay
+                setTimeout(() => {
+                  if (window.typeChart) window.typeChart.update && window.typeChart.update();
+                  if (window.personChart) window.personChart.update && window.personChart.update();
+                  if (window.hourChart) window.hourChart.update && window.hourChart.update();
+                }, 100);
+              } else {
+                statsMsg.style.display = 'block';
+                // Clear charts if no data
+                if (window.typeChart) window.typeChart.destroy();
+                if (window.personChart) window.personChart.destroy();
+                if (window.hourChart) window.hourChart.destroy();
+              }
+            } catch (err) {
+              statsMsg.style.display = 'block';
+              console.error('[EventStats] Chart render error:', err);
+            }
+          })
+          .catch((err) => {
+            document.getElementById('stats-message').style.display = 'block';
+            console.error('[EventStats] Fetch error:', err);
+          });
+      }
+      setInterval(fetchStats, 5000);
+      fetchStats();
 
       socket.on("stream_stopped", () => {
         document.getElementById("live-stream-section").style.display = "none";
@@ -184,6 +318,15 @@
         });
 
         hls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.type === 'mediaError' && data.details === 'bufferStalledError') {
+            // Suppress error and show waiting message
+            const statusDiv = document.getElementById('video-status');
+            statusDiv.innerText = 'Processing, please wait...';
+            statusDiv.style.display = 'block';
+            hls.recoverMediaError();
+            return;
+          }
+          // For other errors, show toast
           console.error("HLS.js error", data);
           M.toast({ html: "❌ Stream error occurred", classes: "red" });
         });
@@ -200,12 +343,10 @@
     const outputSection = document.getElementById("output-section");
     const outputVideo = document.getElementById("output-video");
     const downloadLink = document.getElementById("download-link");
-    const logSection = document.getElementById("log-section");
-    const logTable = document.getElementById("log-table");
-    const filterSelect = document.getElementById("behavior-filter");
+    // (Removed duplicate const logSection, logTable, filterSelect inside DOMContentLoaded)
     const downloadCSV = document.getElementById("download-csv");
 
-    let logData = [];
+    // (Removed duplicate let logData = [] inside DOMContentLoaded)
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();
@@ -263,7 +404,7 @@
       });
     });
 
-    function populateLogTable(filterValue) {
+    function populateLogTable(filterValue, page = 1) {
       logTable.innerHTML = "";
       if (logData.length === 0) return;
 
@@ -274,12 +415,19 @@
         filterValue === "All" || row[behaviorIndex] === filterValue
       );
 
+      // Pagination
+      const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+      if (page > totalPages) page = totalPages;
+      const startIdx = (page - 1) * pageSize;
+      const endIdx = startIdx + pageSize;
+      const pageRows = filtered.slice(startIdx, endIdx);
+
       let html = "<thead><tr>";
       for (const col of headers) {
         html += `<th>${col}</th>`;
       }
       html += "</tr></thead><tbody>";
-      for (const row of filtered) {
+      for (const row of pageRows) {
         html += "<tr>";
         for (const cell of row) {
           html += `<td>${cell}</td>`;
@@ -288,9 +436,35 @@
       }
       html += "</tbody>";
       logTable.innerHTML = html;
+      renderPaginationControls(totalPages, page);
+    }
+
+    function renderPaginationControls(totalPages, current) {
+      const container = document.getElementById("pagination-controls");
+      if (totalPages <= 1) {
+        container.innerHTML = "";
+        return;
+      }
+      let html = `<ul class='pagination'>`;
+      for (let i = 1; i <= totalPages; i++) {
+        html += `<li class='${i === current ? "active blue" : "waves-effect"}'><a href='#!' class='page-link' data-page='${i}'>${i}</a></li>`;
+      }
+      html += `</ul>`;
+      container.innerHTML = html;
+
+      Array.from(document.getElementsByClassName('page-link')).forEach(el => {
+        el.onclick = function() {
+          const page = parseInt(this.getAttribute('data-page'));
+          if (!isNaN(page)) {
+            currentPage = page;
+            populateLogTable(filterSelect.value, currentPage);
+          }
+        };
+      });
     }
 
     function populateFilterOptions() {
+      if (logData.length === 0) return;
       const headers = logData[0];
       const behaviorIndex = headers.indexOf("Behavior");
       const behaviors = new Set(logData.slice(1).map(row => row[behaviorIndex]));
@@ -306,10 +480,12 @@
       filterSelect.appendChild(allOption);
 
       behaviors.forEach(behavior => {
-        const opt = document.createElement("option");
-        opt.value = behavior;
-        opt.textContent = behavior;
-        filterSelect.appendChild(opt);
+        if (behavior && behavior.trim() !== "") {
+          const opt = document.createElement("option");
+          opt.value = behavior;
+          opt.textContent = behavior;
+          filterSelect.appendChild(opt);
+        }
       });
 
       const instance = M.FormSelect.getInstance(filterSelect);
@@ -319,9 +495,117 @@
       filterSelect.value = currentValue;
     }
 
+
+    // --- Filter event listeners ---
     filterSelect.addEventListener("change", () => {
-      populateLogTable(filterSelect.value);
+      currentPage = 1;
+      fetchLogJson();
     });
+    personFilter.addEventListener("input", () => {
+      currentPage = 1;
+      fetchLogJson();
+    });
+    dateFromFilter.addEventListener("change", () => {
+      currentPage = 1;
+      fetchLogJson();
+    });
+    dateToFilter.addEventListener("change", () => {
+      currentPage = 1;
+      fetchLogJson();
+    });
+
+    // --- Chart.js rendering ---
+    var typeChart, personChart, hourChart;
+    function renderTypeChart(data) {
+      const canvas = document.getElementById('typeChart');
+      const fallback = document.getElementById('typeChart-fallback');
+      try {
+        console.log('[Chart] TypeChart canvas:', canvas);
+        const ctx = canvas.getContext('2d');
+        console.log('[Chart] TypeChart context:', ctx);
+        if (!ctx) throw new Error('2D context not available for typeChart');
+        if (typeChart) typeChart.destroy();
+        typeChart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: Object.keys(data),
+            datasets: [{ data: Object.values(data), backgroundColor: ["#42a5f5", "#66bb6a", "#ffa726", "#ab47bc", "#ef5350", "#26a69a"] }]
+          },
+          options: { plugins: { legend: { display: true } }, responsive: true }
+        });
+        setTimeout(() => {
+          typeChart.resize && typeChart.resize();
+          typeChart.update && typeChart.update();
+        }, 50);
+        fallback.style.display = 'none';
+        console.log('[Chart] Type chart rendered');
+      } catch (e) {
+        fallback.style.display = 'block';
+        console.error('[Chart] Type chart error:', e);
+        if (e && e.stack) console.error(e.stack);
+      }
+    }
+    function renderPersonChart(data) {
+      const canvas = document.getElementById('personChart');
+      const fallback = document.getElementById('personChart-fallback');
+      try {
+        console.log('[Chart] PersonChart canvas:', canvas);
+        const ctx = canvas.getContext('2d');
+        console.log('[Chart] PersonChart context:', ctx);
+        if (!ctx) throw new Error('2D context not available for personChart');
+        if (personChart) personChart.destroy();
+        personChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: Object.keys(data),
+            datasets: [{ label: 'Events', data: Object.values(data), backgroundColor: "#42a5f5" }]
+          },
+          options: { plugins: { legend: { display: false } }, responsive: true }
+        });
+        setTimeout(() => {
+          personChart.resize && personChart.resize();
+          personChart.update && personChart.update();
+        }, 50);
+        fallback.style.display = 'none';
+        console.log('[Chart] Person chart rendered');
+      } catch (e) {
+        fallback.style.display = 'block';
+        console.error('[Chart] Person chart error:', e);
+        if (e && e.stack) console.error(e.stack);
+      }
+    }
+    function renderHourChart(data) {
+      const canvas = document.getElementById('hourChart');
+      const fallback = document.getElementById('hourChart-fallback');
+      try {
+        console.log('[Chart] HourChart canvas:', canvas);
+        const ctx = canvas.getContext('2d');
+        console.log('[Chart] HourChart context:', ctx);
+        if (!ctx) throw new Error('2D context not available for hourChart');
+        if (hourChart) hourChart.destroy();
+        // Fill missing hours with 0
+        const hours = Array.from({length:24}, (_,i)=>i.toString().padStart(2,'0'));
+        const values = hours.map(h => data[h] ? data[h] : 0);
+        hourChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: hours,
+            datasets: [{ label: 'Events per Hour', data: values, borderColor: "#ab47bc", backgroundColor: "#e1bee7", fill: true }]
+          },
+          options: { plugins: { legend: { display: true } }, responsive: true }
+        });
+        setTimeout(() => {
+          hourChart.resize && hourChart.resize();
+          hourChart.update && hourChart.update();
+        }, 50);
+        fallback.style.display = 'none';
+        console.log('[Chart] Hour chart rendered');
+      } catch (e) {
+        fallback.style.display = 'block';
+        console.error('[Chart] Hour chart error:', e);
+        if (e && e.stack) console.error(e.stack);
+      }
+    }
 
     downloadCSV.addEventListener("click", () => {
       let csvContent = "data:text/csv;charset=utf-8,";
