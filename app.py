@@ -365,7 +365,7 @@ def run_stream_processing(input_video_path, hls_output_path):
         with FileLock(LOG_PATH + ".lock"):
             with open(LOG_PATH, mode="w", newline="") as log_file:
                 log_writer = csv.writer(log_file)
-                log_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Closest Person Distance (m)"])
+                log_writer.writerow(["Event ID", "Frame", "Behavior", "Class", "Distance (m)", "Timestamp (s)", "Event Time (system)", "Notification"])
 
     # Wait briefly to ensure FFmpeg is ready
     time.sleep(1)

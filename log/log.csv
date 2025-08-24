@@ -1,9 +1,0 @@
-Event ID,Frame,Behavior,Class,Distance (m),Timestamp (s),Event Time (system),Closest Person Distance (m)
-c567bd71-892c-4f31-963b-c12f9bbde832,40,Proximity Alert,person,3.31,1.33,2025-08-08 02:03:14,
-cc608ca6-0157-4fcd-b29a-f81b215087a1,71,Door Open,Lam,,2.37,2025-08-08 02:03:16,
-9fcb849e-97e9-4f4b-b94b-f43d9022e720,71,Alert,Home Owner Detected,,,2025-08-08 02:03:16,Lam just came home!
-397981b9-0592-4ee4-88ef-f55b6f46dbcc,140,Proximity Alert,person,1.83,4.67,2025-08-08 02:03:24,
-3f9a5318-0e23-4c0c-a1a5-341be7302658,255,Proximity Alert,person,2.14,8.5,2025-08-08 02:03:34,
-c2e8ef25-5b42-4db6-a722-2f99b9e724b6,515,Proximity Alert,person,2.6,17.17,2025-08-08 02:03:56,
-71e75163-d898-4338-9c40-1d6485491704,600,Proximity Alert,person,1.76,20.0,2025-08-08 02:04:06,
-93585cb4-2b4f-44ec-af66-525c0eef4b84,710,Proximity Alert,person,2.11,23.67,2025-08-08 02:04:17,
