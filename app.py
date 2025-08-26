@@ -443,6 +443,7 @@ def stream_status():
 def hls_stream(filename):
     return send_from_directory(HLS_DIR, filename)
 
+#stop-stream api
 @app.route("/stop-stream", methods=["POST"])
 def stop_stream():
     for f in os.listdir(HLS_DIR):
