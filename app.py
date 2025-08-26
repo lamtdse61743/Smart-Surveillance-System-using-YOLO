@@ -413,6 +413,7 @@ def run_stream_processing(input_video_path, hls_output_path):
         ffmpeg_process.kill()
     socketio.emit("stream_stopped")
 
+#upload stream api
 @app.route("/upload-stream", methods=["POST"])
 def upload_stream():
     file = request.files.get("video")
