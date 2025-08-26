@@ -289,6 +289,8 @@ def chat_page():
             reply = f"Gemini API error: {str(e)}"
     return jsonify(reply=reply)
 
+
+# start stream function
 def run_stream_processing(input_video_path, hls_output_path):
     # Initialize video capture
     cap = cv2.VideoCapture(input_video_path)
