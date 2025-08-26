@@ -143,7 +143,7 @@ def progress():
         return "0"
 
 
-# Streaming Routes
+# Streaming page navigate api
 @app.route("/stream")
 def stream_page():
     return render_template("stream.html")
