@@ -149,7 +149,7 @@ def stream_page():
     return render_template("stream.html")
 
 
-# Serve the log.csv as JSON with optional filtering
+# logging json api
 @app.route("/log-json")
 def log_json():
     # Get filter params
