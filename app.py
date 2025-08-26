@@ -450,5 +450,6 @@ def stop_stream():
     socketio.emit("stream_stopped")
     return jsonify(success=True)
 
+#main app
 if __name__ == "__main__":
     socketio.run(app, debug=True)

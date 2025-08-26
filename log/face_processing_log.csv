@@ -1,5 +1,0 @@
-Event ID,Frame,Behavior,Class,Distance (m),Timestamp (s),Event Time (system),Closest Person Distance (m)
-af5463f3-86d4-4617-9683-9df801e77492,55,Proximity Alert,person,4.16,1.83,2025-07-02 10:18:18,
-623d35cc-c6cb-46f6-9f82-a73e9b0c4c50,68,Door Open,Lam,,2.27,2025-07-02 10:18:18,
-bee718a0-c0d0-446b-81a3-45408cf60718,145,Proximity Alert,person,2.22,4.83,2025-07-02 10:18:28,
-b5536f49-d3d8-43fc-b569-40e8d7775271,230,Proximity Alert,person,2.17,7.67,2025-07-02 10:18:38,

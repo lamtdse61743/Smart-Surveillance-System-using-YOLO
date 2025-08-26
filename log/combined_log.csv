@@ -1,9 +1,0 @@
-Event ID,Frame,Behavior,Class,Message/Distance,Timestamp (s),Event Time (system),Closest Person Distance (m),Log Type
-269ec73e-36ed-42a6-b364-b49c08d8f33d,N/A,Alert,Proximity Alert,Person detected at 4.16 meters,,,2025-07-02 10:29:21,ALERT
-1c9d5241-c3e0-4f36-b652-f5ffc239ec2c,55,Proximity Alert,person,4.16,1.83,2025-07-02 10:29:21,,PROXIMITY
-1d690284-211f-453f-b3f0-8b846b6002c1,68,Door Open,Lam,,2.27,2025-07-02 10:29:22,,FACE
-88ff2dce-33d1-4172-b3df-f295421bc6bb,N/A,Alert,Home Owner Detected,Lam just came home!,,,2025-07-02 10:29:22,ALERT
-96588053-7769-45e5-90fe-b1e8d6fc1f44,N/A,Alert,Proximity Alert,Person detected at 2.24 meters,,,2025-07-02 10:29:32,ALERT
-37ba3be9-1ae5-4297-9f21-74785104892e,175,Proximity Alert,person,2.24,5.83,2025-07-02 10:29:32,,PROXIMITY
-b8d257fa-4ad1-4d2d-82d8-a2857681781f,N/A,Alert,Proximity Alert,Person detected at 1.95 meters,,,2025-07-02 10:29:42,ALERT
-159e24e0-9bf1-4380-a37d-49c49ee1606d,270,Proximity Alert,person,1.95,9.0,2025-07-02 10:29:42,,PROXIMITY
