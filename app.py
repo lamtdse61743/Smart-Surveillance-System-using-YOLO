@@ -434,6 +434,7 @@ def upload_stream():
 
     return jsonify(success=True), 200
 
+#stream status checking
 @app.route("/stream-status")
 def stream_status():
     playlist = os.path.join(HLS_DIR, "stream.m3u8")
