@@ -439,6 +439,7 @@ def stream_status():
     playlist = os.path.join(HLS_DIR, "stream.m3u8")
     return jsonify(live=os.path.exists(playlist))
 
+#streaming api
 @app.route("/hls/<path:filename>")
 def hls_stream(filename):
     return send_from_directory(HLS_DIR, filename)
